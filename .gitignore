@@ -1,0 +1,22 @@
+# Dependencies and builds
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and credentials
+.env
+.env.local
+.env.*.local
+oauth.json
+
+# Python and notebooks
+__pycache__/
+*.pyc
+*.ipynb
+.ipynb_checkpoints/
+
+# Editor and OS files
+.DS_Store
+.vercel/

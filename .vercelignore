@@ -1,0 +1,14 @@
+*.ipynb
+*.py
+*.pyc
+.env
+.env.*
+!.env.example
+__pycache__/
+.ipynb_checkpoints/
+oauth.json
+coverage/
+test/
+node_modules/
+.next/
+*.tsbuildinfo
