@@ -411,7 +411,21 @@ function SortButton({ label, column, active, direction, onSort }: {
 }
 
 function RecommendationsView({ dashboard, recommendations, sortKey, sortDirection, onSort }: RecommendationsViewProps) {
-  const gameDay = dashboard.teamsPlaying.length > 0;
+  const scheduleAvailable = dashboard.schedule.status === "available";
+  const gameDay = scheduleAvailable && dashboard.teamsPlaying.length > 0;
+  const scheduleLabel = !scheduleAvailable
+    ? "Schedule unavailable"
+    : gameDay
+      ? `${dashboard.teamsPlaying.length} NBA teams play`
+      : "No NBA games scheduled";
+  const scheduleSource = dashboard.schedule.source
+    ? `Schedule source: ${dashboard.schedule.source === "balldontlie" ? "BALLDONTLIE" : dashboard.schedule.source.toUpperCase()}`
+    : undefined;
+  const emptyDetail = !scheduleAvailable
+    ? "Yahoo returned no available players to rank."
+    : gameDay
+      ? "No available player has a game on the selected date."
+      : "There are no NBA games on the selected date.";
   return (
     <>
       <div className="panel-heading">
@@ -420,13 +434,16 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
           <h2>Best available players</h2>
           <p>{dashboard.freeAgentCount} available players analyzed against the selected matchup.</p>
         </div>
-        <div className={gameDay ? "schedule-status is-live" : "schedule-status"}>
+        <div
+          className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}
+          title={scheduleSource}
+        >
           <CalendarDays size={15} />
-          <span>{gameDay ? `${dashboard.teamsPlaying.length} NBA teams play` : "No NBA games scheduled"}</span>
+          <span>{scheduleLabel}</span>
         </div>
       </div>
       {!recommendations.length ? (
-        <EmptyState title="No eligible streamers" detail="No available player has a game on the selected date." />
+        <EmptyState title="No eligible streamers" detail={emptyDetail} />
       ) : (
         <div className="table-scroll">
           <table className="data-table recommendation-table">
@@ -455,7 +472,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                     </div>
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
-                  <td>{player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
+                  <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
                   <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score.toFixed(2)}</span></td>
                   <td className="reason-column"><div className="tag-list">{player.reason.length ? player.reason.map((reason) => <span className="help-tag" key={reason}>{reason}</span>) : <span className="dash">--</span>}</div></td>
                   <td className="reason-column"><div className="tag-list">{player.watchouts.length ? player.watchouts.map((watchout) => <span className="watch-tag" key={watchout}>{watchout}</span>) : <span className="dash">--</span>}</div></td>

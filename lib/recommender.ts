@@ -176,7 +176,7 @@ export const recommendFreeAgents = (
     [...(options.teamsPlaying ?? [])].map(normalizeTeamAbbreviation),
   );
   const pool = freeAgents.filter((player) => {
-    if (!options.strictGameDay || playingTeams.size === 0) return true;
+    if (!options.strictGameDay) return true;
     return playingTeams.has(normalizeTeamAbbreviation(player.team));
   });
 

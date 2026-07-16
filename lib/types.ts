@@ -93,6 +93,20 @@ export interface Recommendation {
   };
 }
 
+export type ScheduleSource = "balldontlie" | "espn" | "demo";
+
+export interface ScheduleInfo {
+  status: "available" | "unavailable";
+  source: ScheduleSource | null;
+  fallbackUsed: boolean;
+  message?: string;
+}
+
+export interface NbaScheduleResult {
+  teamsPlaying: string[];
+  schedule: ScheduleInfo;
+}
+
 export interface DashboardResponse {
   generatedAt: string;
   cached: boolean;
@@ -107,6 +121,7 @@ export interface DashboardResponse {
   categories: LeagueCategory[];
   matchups: Matchup[];
   categoryNeeds: MatchupCategoryRow[];
+  schedule: ScheduleInfo;
   teamsPlaying: string[];
   freeAgentCount: number;
   recommendations: Recommendation[];

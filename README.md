@@ -7,7 +7,7 @@ A private, Vercel-ready Yahoo Fantasy Basketball dashboard. It discovers the lat
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
 - Weekly category results with close-loss and close-win priority weights.
-- Daily available-player recommendations filtered by the NBA schedule.
+- Daily available-player recommendations filtered by a resilient NBA schedule lookup.
 - Recent-form priority: last 30 days, last 7 days, then season.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
 - Brief server cache plus an explicit refresh control.
@@ -46,6 +46,14 @@ YAHOO_REFRESH_TOKEN=...
 YAHOO_REDIRECT_URI=https://your-project.vercel.app
 ```
 
+Create a free BALLDONTLIE API key and add it for the documented NBA Games endpoint:
+
+```dotenv
+BALLDONTLIE_API_KEY=...
+```
+
+The app uses BALLDONTLIE as its primary schedule source, a zero-config ESPN scoreboard fallback, and Yahoo-only rankings if neither schedule source responds. A schedule outage therefore does not make the dashboard unavailable.
+
 Do not reuse credentials or tokens printed in notebook outputs. Rotate the Yahoo client secret and refresh token before deploying because the source notebooks previously contained credential material.
 
 ## Deploy To Vercel
@@ -68,6 +76,7 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | `YAHOO_CLIENT_SECRET` | Live mode | Yahoo OAuth application secret. |
 | `YAHOO_REFRESH_TOKEN` | Live mode | Long-lived Yahoo refresh token. |
 | `YAHOO_REDIRECT_URI` | Live mode | Exact redirect URI associated with the token. |
+| `BALLDONTLIE_API_KEY` | Recommended | Free API key for the primary NBA Games schedule source. |
 | `CACHE_TTL_SECONDS` | No | In-memory response lifetime; default `300`. |
 | `FREE_AGENT_LIMIT` | No | Maximum paginated available players; default `300`. |
 | `YAHOO_DEMO_MODE` | No | Use deterministic preview data; default `false`. |

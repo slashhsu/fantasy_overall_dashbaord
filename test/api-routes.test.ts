@@ -31,6 +31,7 @@ describe("private dashboard API", () => {
       league: { leagueKey: "demo.l.101" },
       week: 19,
       targetDate: "2025-02-14",
+      schedule: { status: "available", source: "demo" },
     });
     expect(payload.categoryNeeds).toHaveLength(9);
     expect(payload.recommendations.length).toBeGreaterThan(0);

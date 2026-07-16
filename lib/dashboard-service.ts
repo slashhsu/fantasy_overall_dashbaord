@@ -3,9 +3,9 @@ import "server-only";
 import { withCache } from "@/lib/cache";
 import { getRuntimeConfig, isDemoMode } from "@/lib/config";
 import { demoCategories, demoFreeAgents, demoLeagues, demoTeamsPlaying, getDemoMatchups } from "@/lib/demo-data";
-import { fetchTeamsPlayingOnDate } from "@/lib/nba-schedule";
+import { fetchNbaSchedule } from "@/lib/nba-schedule";
 import { evaluateMatchup, recommendFreeAgents } from "@/lib/recommender";
-import type { DashboardResponse, LeagueSummary, Matchup } from "@/lib/types";
+import type { DashboardResponse, LeagueSummary, Matchup, ScheduleInfo } from "@/lib/types";
 import { fetchFreeAgents, fetchLeagueSettings, fetchLeagues, fetchScoreboard } from "@/lib/yahoo";
 
 const leaguesCacheKey = "leagues:current";
@@ -57,6 +57,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     matchups: ReturnType<typeof getDemoMatchups>;
     freeAgents: typeof demoFreeAgents;
     teamsPlaying: typeof demoTeamsPlaying;
+    schedule: ScheduleInfo;
   };
   if (demoMode) {
     base = {
@@ -64,10 +65,11 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       matchups: getDemoMatchups(league.leagueKey, options.week),
       freeAgents: demoFreeAgents,
       teamsPlaying: demoTeamsPlaying,
+      schedule: { status: "available", source: "demo", fallbackUsed: false },
     };
   } else {
     const forceRefresh = Boolean(options.forceRefresh);
-    const [categories, matchups, freeAgents, teamsPlaying] = await Promise.all([
+    const [categories, matchups, freeAgents, nbaSchedule] = await Promise.all([
       withCache(
         `settings:${league.leagueKey}`,
         cacheTtlSeconds,
@@ -89,7 +91,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       withCache(
         `nba-schedule:${options.targetDate}`,
         cacheTtlSeconds,
-        () => fetchTeamsPlayingOnDate(options.targetDate),
+        () => fetchNbaSchedule(options.targetDate),
         forceRefresh,
       ),
     ]);
@@ -97,9 +99,10 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       categories: categories.value,
       matchups: matchups.value,
       freeAgents: freeAgents.value,
-      teamsPlaying: teamsPlaying.value,
+      teamsPlaying: nbaSchedule.value.teamsPlaying,
+      schedule: nbaSchedule.value.schedule,
     };
-    cached = categories.cached && matchups.cached && freeAgents.cached && teamsPlaying.cached;
+    cached = categories.cached && matchups.cached && freeAgents.cached && nbaSchedule.cached;
   }
 
   const selectedMatchup = findSelectedMatchup(
@@ -115,7 +118,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   const categoryNeeds = evaluateMatchup(selectedTeam, opponent, base.categories);
   const recommendations = recommendFreeAgents(base.freeAgents, categoryNeeds, {
     teamsPlaying: base.teamsPlaying,
-    strictGameDay: true,
+    strictGameDay: base.schedule.status === "available",
     topN: 50,
   });
 
@@ -133,6 +136,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     categories: base.categories,
     matchups: base.matchups,
     categoryNeeds,
+    schedule: base.schedule,
     teamsPlaying: base.teamsPlaying,
     freeAgentCount: base.freeAgents.length,
     recommendations,

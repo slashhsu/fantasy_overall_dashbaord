@@ -49,4 +49,19 @@ describe("recommender parity", () => {
     expect(firstRun.map((player) => player.playerKey)).toEqual(secondRun.map((player) => player.playerKey));
     expect(firstRun[0].score).toBeGreaterThanOrEqual(firstRun[1].score);
   });
+
+  it("distinguishes a confirmed no-games day from an unavailable schedule", () => {
+    const matchup = getDemoMatchups("demo.l.101", 19)[0];
+    const needs = evaluateMatchup(matchup.teamA, matchup.teamB, demoCategories);
+    const confirmedNoGames = recommendFreeAgents(demoFreeAgents, needs, {
+      teamsPlaying: [],
+      strictGameDay: true,
+    });
+    const scheduleUnavailable = recommendFreeAgents(demoFreeAgents, needs, {
+      teamsPlaying: [],
+      strictGameDay: false,
+    });
+    expect(confirmedNoGames).toEqual([]);
+    expect(scheduleUnavailable).toHaveLength(demoFreeAgents.length);
+  });
 });
