@@ -1,0 +1,7 @@
+{
+  "generatedAt": null,
+  "provider": "SportsDataIO Discovery Lab",
+  "status": "not-run",
+  "selected": "probability-provisional",
+  "message": "No SPORTSDATAIO_API_KEY was available in the implementation environment. Run npm run backtest:recommender after configuring the local-only key; the command applies the documented evidence gate and replaces this report."
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoCategories, demoFreeAgents, getDemoMatchups } from "@/lib/demo-data";
-import { evaluateMatchup, recommendFreeAgents, splitRatio, toNumber } from "@/lib/recommender";
+import { canUseSlot, evaluateMatchup, normalCdf, poissonBinomialOutcomeValue, recommendFreeAgents, splitRatio, toNumber } from "@/lib/recommender";
+import type { FreeAgent, LeagueCategory, MatchupTeam } from "@/lib/types";
 
 describe("recommender parity", () => {
   it("parses Yahoo numbers and made/attempted ratios", () => {
@@ -63,5 +64,57 @@ describe("recommender parity", () => {
     });
     expect(confirmedNoGames).toEqual([]);
     expect(scheduleUnavailable).toHaveLength(demoFreeAgents.length);
+  });
+
+  it("keeps probability functions monotonic and gives ties half value", () => {
+    expect(normalCdf(-1)).toBeLessThan(normalCdf(0));
+    expect(normalCdf(0)).toBeCloseTo(0.5, 5);
+    expect(normalCdf(1)).toBeGreaterThan(normalCdf(0));
+    expect(poissonBinomialOutcomeValue([1, 0])).toBe(0.5);
+    expect(poissonBinomialOutcomeValue([1, 1, 0])).toBe(1);
+  });
+
+  it("uses blended windows and scores the net value over a displaced starter", () => {
+    const category: LeagueCategory = {
+      statId: "12", name: "Points Scored", displayName: "PTS", position: 0, enabled: true,
+    };
+    const team: MatchupTeam = { teamKey: "l.t.1", name: "Team", stats: { "12": "90" } };
+    const opponent: MatchupTeam = { teamKey: "l.t.2", name: "Opponent", stats: { "12": "100" } };
+    const needs = evaluateMatchup(team, opponent, [category]);
+    const makePlayer = (playerKey: string, name: string, points: number, status = ""): FreeAgent => ({
+      playerKey,
+      name,
+      position: "PG",
+      eligiblePositions: ["PG", "G", "Util"],
+      team: "BOS",
+      status,
+      period: "lastmonth",
+      stats: { "Games Played (GP)": 10, "Points Scored": points * 10 },
+      statWindows: {
+        season: { "Games Played (GP)": 40, "Points Scored": points * 40 },
+        lastmonth: { "Games Played (GP)": 10, "Points Scored": points * 10 },
+        lastweek: { "Games Played (GP)": 3, "Points Scored": points * 3 },
+      },
+    });
+    const weakStarter = makePlayer("starter", "Weak Starter", 5);
+    const candidate = makePlayer("candidate", "Candidate", 20);
+    const inactive = makePlayer("inactive", "Inactive Star", 40, "INJ");
+    const recommendations = recommendFreeAgents([candidate, inactive], needs, {
+      teamsPlaying: ["BOS"],
+      strictGameDay: true,
+      targetDate: "2026-02-20",
+      roster: [weakStarter],
+      rosterPositions: [{ position: "Util", count: 1 }],
+      lineupAvailable: true,
+    });
+    expect(recommendations).toHaveLength(1);
+    expect(recommendations[0]).toMatchObject({
+      name: "Candidate",
+      projectionBasis: "blended",
+      lineupImpact: { status: "replaces", displacedPlayer: "Weak Starter" },
+    });
+    expect(recommendations[0].score).toBeGreaterThan(0);
+    expect(canUseSlot(candidate, "G")).toBe(true);
+    expect(canUseSlot(candidate, "C")).toBe(false);
   });
 });

@@ -432,16 +432,24 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
         <div>
           <p className="eyebrow">Daily waiver board</p>
           <h2>Best available players</h2>
-          <p>{dashboard.freeAgentCount} available players analyzed against the selected matchup.</p>
+          <p>{dashboard.freeAgentCount} available players analyzed by {dashboard.model.name}.</p>
         </div>
-        <div
-          className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}
-          title={scheduleSource}
-        >
-          <CalendarDays size={15} />
-          <span>{scheduleLabel}</span>
+        <div className="recommendation-statuses">
+          <span className={`model-status ${dashboard.model.selectionStatus}`} title={dashboard.model.backtestMessage}>
+            {dashboard.model.version} · {dashboard.model.selectionStatus === "historical-validated" ? "Backtested" : "Provisional"}
+          </span>
+          <div
+            className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}
+            title={scheduleSource}
+          >
+            <CalendarDays size={15} />
+            <span>{scheduleLabel}</span>
+          </div>
         </div>
       </div>
+      {!dashboard.lineupAvailable && dashboard.lineupMessage ? (
+        <div className="inline-notice">{dashboard.lineupMessage} Recommendations show full-game value.</div>
+      ) : null}
       {!recommendations.length ? (
         <EmptyState title="No eligible streamers" detail={emptyDetail} />
       ) : (
@@ -453,7 +461,9 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                 <th><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
                 <th><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
                 <th>Game</th>
-                <th><SortButton label="Score" column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /></th>
+                <th><SortButton label="Swing" column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /></th>
+                <th>Confidence</th>
+                <th className="lineup-column">Lineup</th>
                 <th className="reason-column">Helps</th>
                 <th className="reason-column">Watch</th>
                 {(["pts", "reb", "ast", "stl", "blk", "threePm", "turnovers"] as const).map((key) => (
@@ -468,12 +478,14 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   <td>
                     <div className="player-cell">
                       <span className="player-avatar">{initials(player.name)}</span>
-                      <span><strong>{player.name}</strong><small>{player.position} · {player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}</small></span>
+                      <span><strong>{player.name}</strong><small>{player.position} · {player.projectionBasis === "blended" ? "Blended form" : player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}</small></span>
                     </div>
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
                   <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
-                  <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score.toFixed(2)}</span></td>
+                  <td title={player.scoreType === "matchup-probability" ? "Change in matchup win probability" : "Expected categories added"}><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span></td>
+                  <td><span className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence}</span></td>
+                  <td className="lineup-column"><span className={`lineup-label ${player.lineupImpact.status}`}>{player.lineupImpact.label}</span></td>
                   <td className="reason-column"><div className="tag-list">{player.reason.length ? player.reason.map((reason) => <span className="help-tag" key={reason}>{reason}</span>) : <span className="dash">--</span>}</div></td>
                   <td className="reason-column"><div className="tag-list">{player.watchouts.length ? player.watchouts.map((watchout) => <span className="watch-tag" key={watchout}>{watchout}</span>) : <span className="dash">--</span>}</div></td>
                   <td>{player.projections.pts.toFixed(1)}</td>

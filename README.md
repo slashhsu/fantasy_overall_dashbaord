@@ -6,9 +6,11 @@ A private, Vercel-ready Yahoo Fantasy Basketball dashboard. It discovers the lat
 
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
-- Weekly category results with close-loss and close-win priority weights.
-- Daily available-player recommendations filtered by a resilient NBA schedule lookup.
-- Recent-form priority: last 30 days, last 7 days, then season.
+- Weekly category results with close-loss and close-win context.
+- Daily recommendations ranked by expected category or matchup probability gained.
+- Empirical-Bayes projections blending season, last 30 days, and last 7 days.
+- Dated Yahoo roster optimization that accounts for active-slot eligibility and displaced starters.
+- Confidence, category-level reasons, and percentage-volume effects for every recommendation.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
 - Brief server cache plus an explicit refresh control.
 - Demo mode for local UI testing without Yahoo credentials.
@@ -89,5 +91,17 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+## Historical Recommendation Backtest
+
+The production app does not call SportsDataIO. Historical model evaluation is an offline development command using prior-season game logs from SportsDataIO Discovery Lab.
+
+```bash
+cp .env.backtest.example .env.backtest.local
+set -a; source .env.backtest.local; set +a
+pnpm backtest:recommender -- --season=2025REG
+```
+
+Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command compares the legacy scorer, blended projections, and the Matchup Swing probability model using chronological held-out scenarios. It writes aggregate evidence to `reports/recommender-backtest.json` and exits with code `2` when the probability model does not clear the promotion gate.
 
 The app is recommendation-only. It does not add or drop Yahoo players.

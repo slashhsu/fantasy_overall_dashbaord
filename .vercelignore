@@ -8,6 +8,7 @@ __pycache__/
 .ipynb_checkpoints/
 oauth.json
 coverage/
+.cache/
 test/
 node_modules/
 .next/

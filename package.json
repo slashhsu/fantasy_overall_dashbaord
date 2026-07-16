@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "backtest:recommender": "tsx scripts/backtest-recommender.ts"
   },
   "dependencies": {
     "fast-xml-parser": "^5.3.6",
@@ -32,6 +33,7 @@
     "eslint-config-next": "16.2.10",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4.3.2",
+    "tsx": "^4.20.3",
     "typescript": "^5.7.2",
     "vitest": "^3.0.2"
   }

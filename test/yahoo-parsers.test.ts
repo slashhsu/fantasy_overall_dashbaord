@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFreeAgentPage, parseLeagueDiscovery, parseLeagueSettings, parseScoreboard } from "@/lib/yahoo";
+import { parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseRoster, parseScoreboard } from "@/lib/yahoo";
 
 const gamesXml = `
 <fantasy_content xmlns="http://fantasysports.yahooapis.com/fantasy/v2/base.rng">
@@ -65,6 +65,36 @@ describe("Yahoo XML normalization", () => {
       team: "GSW",
       period: "lastmonth",
       stats: { "Games Played (GP)": 8, "Points Scored": 112 },
+    });
+  });
+
+  it("parses scoring format, roster slots, and dated player eligibility", () => {
+    const configuration = parseLeagueConfiguration(`
+      <fantasy_content><league><scoring_type>headone</scoring_type><settings>
+        <roster_positions>
+          <roster_position><position>PG</position><count>1</count></roster_position>
+          <roster_position><position>Util</position><count>2</count></roster_position>
+          <roster_position><position>BN</position><count>3</count></roster_position>
+        </roster_positions>
+        <stat_categories><stats><stat><stat_id>12</stat_id><display_name>PTS</display_name></stat></stats></stat_categories>
+      </settings></league></fantasy_content>`);
+    expect(configuration.scoringFormat).toBe("most-categories");
+    expect(configuration.rosterPositions).toEqual([
+      { position: "PG", count: 1 },
+      { position: "Util", count: 2 },
+      { position: "BN", count: 3 },
+    ]);
+
+    const roster = parseRoster(`
+      <fantasy_content><team><roster><players><player>
+        <player_key>454.p.42</player_key><name><full>Example Player</full></name>
+        <editorial_team_abbr>GS</editorial_team_abbr><display_position>SG,SF</display_position>
+        <eligible_positions><position>SG</position><position>SF</position><position>Util</position></eligible_positions>
+        <selected_position><position>SG</position></selected_position>
+      </player></players></roster></team></fantasy_content>`);
+    expect(roster[0]).toMatchObject({
+      selectedPosition: "SG",
+      eligiblePositions: ["SG", "SF", "Util"],
     });
   });
 });

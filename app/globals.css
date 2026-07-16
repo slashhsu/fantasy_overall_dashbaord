@@ -124,6 +124,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .schedule-status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid #ded5c7; border-radius: 6px; background: #fff9f1; color: #8a672c; font-size: 10px; font-weight: 650; white-space: nowrap; }
 .schedule-status.is-live { border-color: #b8ddce; background: #effaf5; color: #167653; }
 .schedule-status.is-unavailable { border-color: #e5c5c1; background: #fff4f2; color: #a34a43; }
+.recommendation-statuses { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.model-status { display: inline-flex; align-items: center; min-height: 28px; padding: 5px 8px; border: 1px solid #d9dde3; border-radius: 5px; background: #f7f8fa; color: #606873; font-size: 9px; font-weight: 700; }
+.model-status.historical-validated { border-color: #b8ddce; background: #effaf5; color: #167653; }
+.inline-notice { margin: 0 18px 12px; padding: 8px 10px; border-left: 3px solid #d0a85b; background: #fff9ef; color: #725927; font-size: 10px; line-height: 1.45; }
 .need-legend { display: flex; align-items: center; gap: 6px; color: #757c85; font-size: 10px; }
 .need-legend span { width: 18px; height: 5px; border-radius: 3px; background: #e8794c; }
 .panel-loading { position: absolute; right: 14px; top: 14px; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #d6dbe1; border-radius: 6px; background: rgba(255,255,255,.94); color: #626a73; font-size: 10px; box-shadow: 0 3px 12px rgba(25,29,34,.08); }
@@ -134,7 +138,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .data-table td { height: 53px; padding: 8px 11px; border-bottom: 1px solid #eceef1; vertical-align: middle; }
 .data-table tbody tr:last-child td { border-bottom: 0; }
 .data-table tbody tr:hover td { background: #fafbfd; }
-.recommendation-table { min-width: 1280px; }
+.recommendation-table { min-width: 1490px; }
 .rank-column { width: 42px; text-align: center !important; }
 .rank-number { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: #747b84; font-weight: 700; }
 .rank-number.top { background: #fff1e8; color: #c85a1c; }
@@ -149,6 +153,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .muted-chip { background: #f0f2f4; color: #818790; }
 .score-positive { color: #137a56; font-weight: 750; }
 .score-negative { color: #b44b43; font-weight: 750; }
+.confidence-chip { display: inline-flex; justify-content: center; min-width: 46px; padding: 3px 5px; border-radius: 4px; background: #edf1f5; color: #66707c; font-size: 8px; font-weight: 750; }
+.confidence-chip.high { background: #edf7f2; color: #1d7255; }
+.confidence-chip.low { background: #fff1ef; color: #a34a43; }
+.lineup-column { min-width: 112px; }
+.lineup-label { display: block; max-width: 130px; color: #59616b; font-size: 9px; line-height: 1.35; white-space: normal; }
+.lineup-label.fills, .lineup-label.replaces { color: #245c48; font-weight: 650; }
+.lineup-label.not-started { color: #9a5d36; }
 .reason-column { min-width: 170px; max-width: 220px; white-space: normal; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 3px; }
 .help-tag, .watch-tag { display: inline-block; padding: 3px 5px; border-radius: 4px; font-size: 8px; font-weight: 650; }

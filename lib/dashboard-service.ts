@@ -5,8 +5,9 @@ import { getRuntimeConfig, isDemoMode } from "@/lib/config";
 import { demoCategories, demoFreeAgents, demoLeagues, demoTeamsPlaying, getDemoMatchups } from "@/lib/demo-data";
 import { fetchNbaSchedule } from "@/lib/nba-schedule";
 import { evaluateMatchup, recommendFreeAgents } from "@/lib/recommender";
-import type { DashboardResponse, LeagueSummary, Matchup, ScheduleInfo } from "@/lib/types";
-import { fetchFreeAgents, fetchLeagueSettings, fetchLeagues, fetchScoreboard } from "@/lib/yahoo";
+import { RECOMMENDER_MODEL } from "@/lib/recommender-model";
+import type { DashboardResponse, LeagueConfiguration, LeagueSummary, Matchup, RosterSnapshot, ScheduleInfo } from "@/lib/types";
+import { fetchFreeAgents, fetchLeagueConfiguration, fetchLeagues, fetchRoster, fetchScoreboard } from "@/lib/yahoo";
 
 const leaguesCacheKey = "leagues:current";
 
@@ -53,7 +54,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   const { cacheTtlSeconds } = getRuntimeConfig();
   let cached = false;
   let base: {
-    categories: typeof demoCategories;
+    configuration: LeagueConfiguration;
     matchups: ReturnType<typeof getDemoMatchups>;
     freeAgents: typeof demoFreeAgents;
     teamsPlaying: typeof demoTeamsPlaying;
@@ -61,7 +62,11 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   };
   if (demoMode) {
     base = {
-      categories: demoCategories,
+      configuration: {
+        categories: demoCategories,
+        rosterPositions: [],
+        scoringFormat: league.scoringFormat ?? "each-category",
+      },
       matchups: getDemoMatchups(league.leagueKey, options.week),
       freeAgents: demoFreeAgents,
       teamsPlaying: demoTeamsPlaying,
@@ -69,11 +74,11 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     };
   } else {
     const forceRefresh = Boolean(options.forceRefresh);
-    const [categories, matchups, freeAgents, nbaSchedule] = await Promise.all([
+    const [configuration, matchups, freeAgents, nbaSchedule] = await Promise.all([
       withCache(
         `settings:${league.leagueKey}`,
         cacheTtlSeconds,
-        () => fetchLeagueSettings(league.leagueKey),
+        () => fetchLeagueConfiguration(league.leagueKey),
         forceRefresh,
       ),
       withCache(
@@ -96,13 +101,13 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       ),
     ]);
     base = {
-      categories: categories.value,
+      configuration: configuration.value,
       matchups: matchups.value,
       freeAgents: freeAgents.value,
       teamsPlaying: nbaSchedule.value.teamsPlaying,
       schedule: nbaSchedule.value.schedule,
     };
-    cached = categories.cached && matchups.cached && freeAgents.cached && nbaSchedule.cached;
+    cached = configuration.cached && matchups.cached && freeAgents.cached && nbaSchedule.cached;
   }
 
   const selectedMatchup = findSelectedMatchup(
@@ -115,10 +120,38 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   const selectedTeamIsB = selectedMatchup.teamB.teamKey === league.userTeam.key;
   const selectedTeam = selectedTeamIsB ? selectedMatchup.teamB : selectedMatchup.teamA;
   const opponent = selectedTeamIsB ? selectedMatchup.teamA : selectedMatchup.teamB;
-  const categoryNeeds = evaluateMatchup(selectedTeam, opponent, base.categories);
+  const categoryNeeds = evaluateMatchup(selectedTeam, opponent, base.configuration.categories);
+  let roster: RosterSnapshot = {
+    available: false,
+    players: [],
+    message: demoMode ? "Lineup optimization is disabled in demo mode." : "Yahoo lineup data was not requested.",
+  };
+  if (!demoMode && selectedTeam.teamKey) {
+    try {
+      const rosterResult = await withCache(
+        `roster:${selectedTeam.teamKey}:${options.targetDate}`,
+        cacheTtlSeconds,
+        () => fetchRoster(league.leagueKey, selectedTeam.teamKey, options.targetDate),
+        Boolean(options.forceRefresh),
+      );
+      roster = rosterResult.value;
+      cached = cached && rosterResult.cached;
+    } catch (error) {
+      roster = {
+        available: false,
+        players: [],
+        message: error instanceof Error ? `Lineup optimization unavailable: ${error.message}` : "Lineup optimization unavailable.",
+      };
+    }
+  }
   const recommendations = recommendFreeAgents(base.freeAgents, categoryNeeds, {
     teamsPlaying: base.teamsPlaying,
     strictGameDay: base.schedule.status === "available",
+    targetDate: options.targetDate,
+    roster: roster.players,
+    rosterPositions: base.configuration.rosterPositions,
+    lineupAvailable: roster.available,
+    scoringFormat: base.configuration.scoringFormat,
     topN: 50,
   });
 
@@ -133,10 +166,13 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     selectedTeamKey: selectedTeam.teamKey,
     selectedTeamName: selectedTeam.name,
     opponentName: opponent.name,
-    categories: base.categories,
+    categories: base.configuration.categories,
     matchups: base.matchups,
     categoryNeeds,
     schedule: base.schedule,
+    model: RECOMMENDER_MODEL,
+    lineupAvailable: roster.available,
+    lineupMessage: roster.message,
     teamsPlaying: base.teamsPlaying,
     freeAgentCount: base.freeAgents.length,
     recommendations,

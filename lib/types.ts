@@ -1,4 +1,6 @@
 export type MatchupSide = "Win" | "Lose" | "Draw" | "No Data";
+export type PlayerStatPeriod = "lastmonth" | "lastweek" | "season";
+export type LeagueScoringFormat = "each-category" | "most-categories" | "unknown";
 
 export interface LeagueTeamSummary {
   key: string;
@@ -13,6 +15,7 @@ export interface LeagueSummary {
   currentWeek: number;
   startWeek: number;
   endWeek: number;
+  scoringFormat?: LeagueScoringFormat;
   userTeam: LeagueTeamSummary;
 }
 
@@ -22,6 +25,17 @@ export interface LeagueCategory {
   displayName: string;
   position: number;
   enabled: boolean;
+}
+
+export interface RosterPosition {
+  position: string;
+  count: number;
+}
+
+export interface LeagueConfiguration {
+  categories: LeagueCategory[];
+  rosterPositions: RosterPosition[];
+  scoringFormat: LeagueScoringFormat;
 }
 
 export interface MatchupTeam {
@@ -66,8 +80,36 @@ export interface FreeAgent {
   teamName?: string;
   headshotUrl?: string;
   status?: string;
-  period: "lastmonth" | "lastweek" | "season" | "unavailable";
+  eligiblePositions?: string[];
+  selectedPosition?: string;
+  period: PlayerStatPeriod | "unavailable";
   stats: Record<string, number>;
+  statWindows?: Partial<Record<PlayerStatPeriod, Record<string, number>>>;
+}
+
+export interface RosterPlayer extends FreeAgent {
+  selectedPosition?: string;
+}
+
+export interface RosterSnapshot {
+  available: boolean;
+  players: RosterPlayer[];
+  message?: string;
+}
+
+export interface RecommendationCategoryImpact {
+  category: string;
+  displayName: string;
+  baselineProbability: number;
+  projectedProbability: number;
+  delta: number;
+}
+
+export interface RecommendationLineupImpact {
+  status: "fills" | "replaces" | "not-started" | "unknown";
+  label: string;
+  slot?: string;
+  displacedPlayer?: string;
 }
 
 export interface Recommendation {
@@ -77,9 +119,15 @@ export interface Recommendation {
   team: string;
   headshotUrl?: string;
   gameToday: boolean;
+  gameVerified: boolean;
   period: FreeAgent["period"];
+  projectionBasis: "blended" | "single-window";
   gamesPlayed: number;
   score: number;
+  scoreType: "expected-categories" | "matchup-probability" | "legacy-z-score";
+  confidence: "High" | "Medium" | "Low";
+  lineupImpact: RecommendationLineupImpact;
+  categoryImpacts: RecommendationCategoryImpact[];
   reason: string[];
   watchouts: string[];
   projections: {
@@ -91,6 +139,15 @@ export interface Recommendation {
     threePm: number;
     turnovers: number;
   };
+}
+
+export interface RecommendationModelSummary {
+  id: string;
+  name: string;
+  version: string;
+  scoreLabel: string;
+  selectionStatus: "historical-validated" | "fixture-validated" | "provisional";
+  backtestMessage: string;
 }
 
 export type ScheduleSource = "balldontlie" | "espn" | "demo";
@@ -122,6 +179,9 @@ export interface DashboardResponse {
   matchups: Matchup[];
   categoryNeeds: MatchupCategoryRow[];
   schedule: ScheduleInfo;
+  model: RecommendationModelSummary;
+  lineupAvailable: boolean;
+  lineupMessage?: string;
   teamsPlaying: string[];
   freeAgentCount: number;
   recommendations: Recommendation[];
