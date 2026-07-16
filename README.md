@@ -46,7 +46,7 @@ YAHOO_REFRESH_TOKEN=...
 YAHOO_REDIRECT_URI=https://your-project.vercel.app
 ```
 
-Create a free BALLDONTLIE API key and add it for the documented NBA Games endpoint:
+Create a free [BALLDONTLIE API key](https://app.balldontlie.io/) and add it for the documented NBA Games endpoint:
 
 ```dotenv
 BALLDONTLIE_API_KEY=...
