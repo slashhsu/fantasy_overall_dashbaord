@@ -124,7 +124,7 @@ export interface Recommendation {
   projectionBasis: "blended" | "single-window";
   gamesPlayed: number;
   score: number;
-  scoreType: "expected-categories" | "matchup-probability" | "legacy-z-score";
+  scoreType: "expected-categories" | "matchup-probability" | "legacy-z-score" | "blended-z-score";
   confidence: "High" | "Medium" | "Low";
   lineupImpact: RecommendationLineupImpact;
   categoryImpacts: RecommendationCategoryImpact[];
@@ -146,7 +146,8 @@ export interface RecommendationModelSummary {
   name: string;
   version: string;
   scoreLabel: string;
-  selectionStatus: "historical-validated" | "fixture-validated" | "provisional";
+  selectedModel: "baseline" | "blended" | "probability";
+  selectionStatus: "historical-validated" | "baseline-retained";
   backtestMessage: string;
 }
 

@@ -9,7 +9,7 @@ import type {
   RosterPlayer,
   RosterPosition,
 } from "@/lib/types";
-import { MODEL_PARAMETERS } from "@/lib/recommender-model";
+import { MODEL_PARAMETERS, SELECTED_RECOMMENDER } from "@/lib/recommender-model";
 import { normalizeTeamAbbreviation } from "@/lib/stats";
 
 export const LOWER_IS_BETTER = new Set([
@@ -168,6 +168,9 @@ const PROJECTION_STATS: Record<string, string[]> = {
   ftm: PERCENTAGE_CATEGORIES["Free Throw Percentage"].made,
   fta: PERCENTAGE_CATEGORIES["Free Throw Percentage"].attempted,
   threePa: PERCENTAGE_CATEGORIES["3-point Percentage"].attempted,
+  fgPct: ["Field Goal Percentage"],
+  ftPct: ["Free Throw Percentage"],
+  threePct: ["3-point Percentage"],
 };
 
 interface PlayerProjection {
@@ -192,16 +195,22 @@ const windowsFor = (player: FreeAgent) => player.statWindows ?? (
 const gamesIn = (stats: Record<string, number> | undefined) =>
   firstStatValue(stats, PROJECTION_STATS.gp);
 
-const rawBlendedRate = (player: FreeAgent, candidates: string[]) => {
+const windowWeightsFor = (key: string) => ({
+  ...MODEL_PARAMETERS.windowWeights,
+  ...(MODEL_PARAMETERS.windowWeightsByStat[key] ?? {}),
+});
+
+const rawBlendedRate = (player: FreeAgent, key: string, candidates: string[]) => {
   const windows = windowsFor(player);
+  const weights = windowWeightsFor(key);
   let weightedRate = 0;
   let totalWeight = 0;
   for (const period of ["season", "lastmonth", "lastweek"] as const) {
     const stats = windows[period];
     const games = gamesIn(stats);
     if (!stats || games <= 0) continue;
-    weightedRate += (firstStatValue(stats, candidates) / games) * MODEL_PARAMETERS.windowWeights[period];
-    totalWeight += MODEL_PARAMETERS.windowWeights[period];
+    weightedRate += (firstStatValue(stats, candidates) / games) * weights[period];
+    totalWeight += weights[period];
   }
   if (totalWeight > 0) return weightedRate / totalWeight;
   const games = firstStatValue(player.stats, PROJECTION_STATS.gp);
@@ -209,24 +218,112 @@ const rawBlendedRate = (player: FreeAgent, candidates: string[]) => {
   return games > 0 ? value / games : value;
 };
 
-const projectionPriors = (players: FreeAgent[]) => Object.fromEntries(
+const rawBlendedRatio = (player: FreeAgent, key: string, candidates: string[]) => {
+  const windows = windowsFor(player);
+  const weights = windowWeightsFor(key);
+  let weighted = 0;
+  let totalWeight = 0;
+  for (const period of ["season", "lastmonth", "lastweek"] as const) {
+    const stats = windows[period];
+    const value = firstStatValue(stats, candidates);
+    if (!stats || !Number.isFinite(value) || value <= 0) continue;
+    weighted += value * weights[period];
+    totalWeight += weights[period];
+  }
+  return totalWeight > 0 ? weighted / totalWeight : firstStatValue(player.stats, candidates);
+};
+
+const primaryPosition = (player: FreeAgent) => {
+  const positions = player.eligiblePositions?.length
+    ? player.eligiblePositions
+    : player.position.split(",").map((position) => position.trim());
+  return positions.find((position) => ["PG", "SG", "SF", "PF", "C"].includes(position)) ?? "ALL";
+};
+
+interface ProjectionPriors {
+  overall: Record<string, number>;
+  byPosition: Map<string, Record<string, number>>;
+}
+
+const averageProjectionRates = (players: FreeAgent[]) => Object.fromEntries(
   Object.entries(PROJECTION_STATS)
     .filter(([key]) => key !== "gp")
     .map(([key, candidates]) => {
-      const values = players.map((player) => rawBlendedRate(player, candidates)).filter(Number.isFinite);
+      const values = players.map((player) => (
+        key.endsWith("Pct")
+          ? rawBlendedRatio(player, key, candidates)
+          : rawBlendedRate(player, key, candidates)
+      )).filter((value) => Number.isFinite(value) && value >= 0);
       return [key, values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0];
     }),
 ) as Record<string, number>;
 
-const projectPlayer = (player: FreeAgent, priors: Record<string, number>): PlayerProjection => {
+const projectionPriors = (players: FreeAgent[]): ProjectionPriors => {
+  const groups = new Map<string, FreeAgent[]>();
+  players.forEach((player) => {
+    const position = primaryPosition(player);
+    groups.set(position, [...(groups.get(position) ?? []), player]);
+  });
+  return {
+    overall: averageProjectionRates(players),
+    byPosition: new Map([...groups].map(([position, group]) => [position, averageProjectionRates(group)])),
+  };
+};
+
+const addPercentageFallback = (rates: Record<string, number>) => {
+  const pairs = [
+    { category: "Field Goal Percentage", made: "fgm", attempted: "fga", ratio: "fgPct" },
+    { category: "Free Throw Percentage", made: "ftm", attempted: "fta", ratio: "ftPct" },
+    { category: "3-point Percentage", made: "threePm", attempted: "threePa", ratio: "threePct" },
+  ];
+  for (const pair of pairs) {
+    if ((rates[pair.attempted] ?? 0) > 0) continue;
+    const percentage = rates[pair.ratio] ?? 0;
+    if (!(percentage > 0)) continue;
+    const attempts = MODEL_PARAMETERS.attemptVolumeFallbackPerGame[pair.category] ?? 1;
+    rates[pair.attempted] = attempts;
+    rates[pair.made] = percentage * attempts;
+  }
+};
+
+const projectPlayer = (player: FreeAgent, priors: ProjectionPriors): PlayerProjection => {
   const windows = windowsFor(player);
   const sampleSize = Math.max(...Object.values(windows).map(gamesIn), 0);
   const reliability = sampleSize / (sampleSize + MODEL_PARAMETERS.priorGames);
+  const prior = priors.byPosition.get(primaryPosition(player)) ?? priors.overall;
   const rates: Record<string, number> = {};
   for (const [key, candidates] of Object.entries(PROJECTION_STATS)) {
     if (key === "gp") continue;
-    const observed = rawBlendedRate(player, candidates);
-    rates[key] = observed * reliability + (priors[key] ?? 0) * (1 - reliability);
+    const observed = key.endsWith("Pct")
+      ? rawBlendedRatio(player, key, candidates)
+      : rawBlendedRate(player, key, candidates);
+    rates[key] = observed * reliability + (prior[key] ?? priors.overall[key] ?? 0) * (1 - reliability);
+  }
+  addPercentageFallback(rates);
+
+  for (const { category, made, attempted, ratio } of [
+    { category: "Field Goal Percentage", made: "fgm", attempted: "fga", ratio: "fgPct" },
+    { category: "Free Throw Percentage", made: "ftm", attempted: "fta", ratio: "ftPct" },
+    { category: "3-point Percentage", made: "threePm", attempted: "threePa", ratio: "threePct" },
+  ]) {
+    const rawAttemptsPerGame = rawBlendedRate(player, attempted, PROJECTION_STATS[attempted]);
+    const observedPercentage = rawBlendedRatio(player, ratio, PROJECTION_STATS[ratio]);
+    const attemptsPerGame = rawAttemptsPerGame > 0
+      ? rawAttemptsPerGame
+      : observedPercentage > 0 ? MODEL_PARAMETERS.attemptVolumeFallbackPerGame[category] ?? 1 : 0;
+    const observedAttempts = attemptsPerGame * Math.max(sampleSize, 1);
+    const observedMade = rawAttemptsPerGame > 0
+      ? rawBlendedRate(player, made, PROJECTION_STATS[made]) * Math.max(sampleSize, 1)
+      : observedPercentage * observedAttempts;
+    const priorPercentage = prior[attempted] > 0
+      ? prior[made] / prior[attempted]
+      : prior[ratio] ?? priors.overall[ratio] ?? 0;
+    const posteriorPercentage = observedAttempts > 0
+      ? (observedMade + priorPercentage * MODEL_PARAMETERS.percentagePriorAttempts)
+        / (observedAttempts + MODEL_PARAMETERS.percentagePriorAttempts)
+      : rates[ratio] ?? priorPercentage;
+    rates[ratio] = posteriorPercentage;
+    rates[made] = posteriorPercentage * (rates[attempted] ?? 0);
   }
   return { player, rates, sampleSize };
 };
@@ -299,7 +396,7 @@ const categoryContribution = (category: string, projection: PlayerProjection) =>
   if (!candidates) return undefined;
   const key = Object.entries(PROJECTION_STATS).find(([, names]) => names === candidates)?.[0];
   if (key) return { value: projection.rates[key] ?? 0 };
-  return { value: rawBlendedRate(projection.player, candidates) };
+  return { value: rawBlendedRate(projection.player, category, candidates) };
 };
 
 const subtractProjection = (candidate: PlayerProjection, displaced?: PlayerProjection): PlayerProjection => ({
@@ -428,11 +525,220 @@ const optimizeLineup = (players: AssignmentPlayer[], slots: string[]): Assignmen
   return visit(0, 0);
 };
 
-export const recommendFreeAgents = (
+type ZScoreMode = "baseline" | "blended";
+
+const projectZScorePlayer = (player: FreeAgent, mode: ZScoreMode): PlayerProjection => {
+  const windows = windowsFor(player);
+  const preferredStats = windows.lastmonth ?? windows.lastweek ?? windows.season ?? player.stats;
+  const sampleSize = gamesIn(preferredStats);
+  const rates: Record<string, number> = {};
+  for (const [key, candidates] of Object.entries(PROJECTION_STATS)) {
+    if (key === "gp") continue;
+    if (mode === "blended") {
+      rates[key] = key.endsWith("Pct")
+        ? rawBlendedRatio(player, key, candidates)
+        : rawBlendedRate(player, key, candidates);
+      continue;
+    }
+    const value = firstStatValue(preferredStats, candidates);
+    rates[key] = key.endsWith("Pct") ? value : sampleSize > 0 ? value / sampleSize : value;
+  }
+  addPercentageFallback(rates);
+  return {
+    player,
+    rates,
+    sampleSize: mode === "blended" ? Math.max(...Object.values(windows).map(gamesIn), 0) : sampleSize,
+  };
+};
+
+const projectionKeyForCategory = (category: string) => {
+  const candidates = COUNT_STATS[category];
+  if (!candidates) return undefined;
+  return Object.entries(PROJECTION_STATS).find(([, names]) => names === candidates)?.[0];
+};
+
+const zScoreMetric = (need: MatchupCategoryRow, projection: PlayerProjection) => {
+  const percentage = percentageKeys(need.category);
+  if (percentage) {
+    const target = need.side === "Lose" || need.side === "Draw"
+      ? need.opponentValue ?? 0
+      : need.teamValue ?? 0;
+    return (projection.rates[percentage.made] ?? 0) - target * (projection.rates[percentage.attempted] ?? 0);
+  }
+  if (need.category === "Assist/Turnover Ratio") {
+    const turnovers = projection.rates.turnovers ?? 0;
+    return turnovers > 0 ? (projection.rates.ast ?? 0) / turnovers : projection.rates.ast ?? 0;
+  }
+  const projectionKey = projectionKeyForCategory(need.category);
+  let value = projectionKey
+    ? projection.rates[projectionKey] ?? 0
+    : rawBlendedRate(projection.player, need.category, COUNT_STATS[need.category] ?? [need.category]);
+  if (need.lowerIsBetter) value *= -1;
+  return value;
+};
+
+interface ZScoreDescriptor {
+  need: MatchupCategoryRow;
+  mean: number;
+  standardDeviation: number;
+}
+
+const zScoreDescriptors = (needs: MatchupCategoryRow[], pool: PlayerProjection[]) => needs
+  .filter((need) => need.priorityWeight > 0)
+  .map((need): ZScoreDescriptor | undefined => {
+    const values = pool.map((projection) => zScoreMetric(need, projection)).filter(Number.isFinite);
+    if (!values.length) return undefined;
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+    return { need, mean, standardDeviation: Math.sqrt(variance) };
+  })
+  .filter((descriptor): descriptor is ZScoreDescriptor => Boolean(descriptor));
+
+const zScoreUtility = (projection: PlayerProjection, descriptors: ZScoreDescriptor[]) => {
+  const reliability = Math.sqrt(Math.min(Math.max(projection.sampleSize, 0), 8) / 8);
+  const reliabilityFactor = 0.75 + 0.25 * reliability;
+  const contributions = new Map<string, number>();
+  let score = 0;
+  for (const descriptor of descriptors) {
+    const standardized = descriptor.standardDeviation > 0
+      ? (zScoreMetric(descriptor.need, projection) - descriptor.mean) / descriptor.standardDeviation
+      : 0;
+    const contribution = standardized * descriptor.need.priorityWeight * reliabilityFactor;
+    score += contribution;
+    contributions.set(descriptor.need.category, contribution);
+  }
+  return { score, contributions };
+};
+
+const confidenceFor = (projection: PlayerProjection) => questionable(projection.player) || projection.sampleSize < 5
+  ? "Low" as const
+  : projection.sampleSize >= 20 ? "High" as const : "Medium" as const;
+
+const zScoreRecommendations = (
+  freeAgents: FreeAgent[],
+  needs: MatchupCategoryRow[],
+  options: RecommendationOptions,
+  mode: ZScoreMode,
+): Recommendation[] => {
+  const playingTeams = new Set([...(options.teamsPlaying ?? [])].map(normalizeTeamAbbreviation));
+  const scheduleKnown = options.strictGameDay === true;
+  const pool = freeAgents.filter((player) => (
+    !confirmedInactive(player)
+    && (!scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(player.team)))
+  ));
+  const projections = new Map(
+    [...pool, ...(options.roster ?? [])].map((player) => [player.playerKey, projectZScorePlayer(player, mode)]),
+  );
+  const poolProjections = pool.map((player) => projections.get(player.playerKey) as PlayerProjection);
+  const descriptors = zScoreDescriptors(needs, poolProjections);
+  const slots = activeSlots(options.rosterPositions ?? []);
+  const rosterAssignments: AssignmentPlayer[] = (options.roster ?? [])
+    .filter((player) => !confirmedInactive(player))
+    .map((player) => projections.get(player.playerKey))
+    .filter((projection): projection is PlayerProjection => Boolean(projection))
+    .filter((projection) => !scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(projection.player.team)))
+    .map((projection) => ({ projection, utility: zScoreUtility(projection, descriptors).score }));
+  const baselineAssignment = slots.length ? optimizeLineup(rosterAssignments, slots) : undefined;
+
+  return pool.map((player): Recommendation => {
+    const projection = projections.get(player.playerKey) as PlayerProjection;
+    const candidateUtility = zScoreUtility(projection, descriptors);
+    let score = candidateUtility.score;
+    let contributions = candidateUtility.contributions;
+    let lineupImpact: Recommendation["lineupImpact"] = {
+      status: "unknown",
+      label: options.lineupAvailable === false ? "Lineup unavailable" : "Full game value",
+    };
+
+    if (baselineAssignment && options.lineupAvailable !== false) {
+      const withCandidate = optimizeLineup([
+        ...rosterAssignments,
+        { projection, utility: candidateUtility.score },
+      ], slots);
+      const candidateSlot = withCandidate.slots.find(({ player: assigned }) => assigned.projection.player.playerKey === player.playerKey);
+      if (!candidateSlot) {
+        score = 0;
+        contributions = new Map();
+        lineupImpact = { status: "not-started", label: "No lineup gain" };
+      } else {
+        const newKeys = new Set(withCandidate.slots.map(({ player: assigned }) => assigned.projection.player.playerKey));
+        const displaced = baselineAssignment.slots.find(({ player: assigned }) => !newKeys.has(assigned.projection.player.playerKey));
+        if (displaced) {
+          const displacedUtility = zScoreUtility(displaced.player.projection, descriptors);
+          score -= displacedUtility.score;
+          contributions = new Map([...contributions].map(([category, value]) => [
+            category,
+            value - (displacedUtility.contributions.get(category) ?? 0),
+          ]));
+          lineupImpact = {
+            status: "replaces",
+            label: `Starts over ${displaced.player.projection.player.name}`,
+            slot: candidateSlot.slot,
+            displacedPlayer: displaced.player.projection.player.name,
+          };
+        } else {
+          lineupImpact = { status: "fills", label: `Fills ${candidateSlot.slot.toUpperCase()}`, slot: candidateSlot.slot };
+        }
+      }
+    }
+
+    const sortedContributions = [...contributions].sort((left, right) => right[1] - left[1]);
+    return {
+      playerKey: player.playerKey,
+      name: player.name,
+      position: player.position,
+      team: normalizeTeamAbbreviation(player.team),
+      headshotUrl: player.headshotUrl,
+      gameToday: playingTeams.has(normalizeTeamAbbreviation(player.team)),
+      gameVerified: scheduleKnown,
+      period: player.period,
+      projectionBasis: mode === "blended" ? "blended" : "single-window",
+      gamesPlayed: projection.sampleSize,
+      score: round(score, 4),
+      scoreType: mode === "blended" ? "blended-z-score" : "legacy-z-score",
+      confidence: confidenceFor(projection),
+      lineupImpact,
+      categoryImpacts: [],
+      reason: sortedContributions.filter(([, value]) => value > 0.35).slice(0, 3).map(([category]) => category),
+      watchouts: sortedContributions.filter(([, value]) => value < -0.75).sort((left, right) => left[1] - right[1]).slice(0, 2).map(([category]) => category),
+      projections: {
+        pts: round(projection.rates.pts),
+        reb: round(projection.rates.reb),
+        ast: round(projection.rates.ast),
+        stl: round(projection.rates.stl),
+        blk: round(projection.rates.blk),
+        threePm: round(projection.rates.threePm),
+        turnovers: round(projection.rates.turnovers),
+      },
+    };
+  }).sort((left, right) => right.score - left.score).slice(0, options.topN ?? 50);
+};
+
+export const recommendFreeAgentsBaseline = (
+  freeAgents: FreeAgent[],
+  needs: MatchupCategoryRow[],
+  options: RecommendationOptions = {},
+) => zScoreRecommendations(freeAgents, needs, options, "baseline");
+
+export const recommendFreeAgentsBlended = (
+  freeAgents: FreeAgent[],
+  needs: MatchupCategoryRow[],
+  options: RecommendationOptions = {},
+) => zScoreRecommendations(freeAgents, needs, options, "blended");
+
+export const recommendFreeAgentsProbability = (
   freeAgents: FreeAgent[],
   needs: MatchupCategoryRow[],
   options: RecommendationOptions = {},
 ): Recommendation[] => {
+  const hasProbabilityCategory = needs.some((need) => (
+    need.category in PERCENTAGE_CATEGORIES
+    || need.category in COUNT_STATS
+    || need.category === "Assist/Turnover Ratio"
+  ));
+  if (!hasProbabilityCategory) {
+    return recommendFreeAgentsBlended(freeAgents, needs, options);
+  }
   const playingTeams = new Set(
     [...(options.teamsPlaying ?? [])].map(normalizeTeamAbbreviation),
   );
@@ -492,7 +798,7 @@ export const recommendFreeAgents = (
               slot: candidateSlot.slot,
               displacedPlayer: displaced.player.projection.player.name,
             }
-            : { status: "fills", label: `Fills ${candidateSlot.slot}`, slot: candidateSlot.slot };
+            : { status: "fills", label: `Fills ${candidateSlot.slot.toUpperCase()}`, slot: candidateSlot.slot };
         }
       }
 
@@ -541,4 +847,18 @@ export const recommendFreeAgents = (
     })
     .sort((left, right) => right.score - left.score)
     .slice(0, options.topN ?? 50);
+};
+
+export const recommendFreeAgents = (
+  freeAgents: FreeAgent[],
+  needs: MatchupCategoryRow[],
+  options: RecommendationOptions = {},
+) => {
+  if (SELECTED_RECOMMENDER === "probability") {
+    return recommendFreeAgentsProbability(freeAgents, needs, options);
+  }
+  if (SELECTED_RECOMMENDER === "blended") {
+    return recommendFreeAgentsBlended(freeAgents, needs, options);
+  }
+  return recommendFreeAgentsBaseline(freeAgents, needs, options);
 };

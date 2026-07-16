@@ -7,8 +7,8 @@ A private, Vercel-ready Yahoo Fantasy Basketball dashboard. It discovers the lat
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
 - Weekly category results with close-loss and close-win context.
-- Daily recommendations ranked by expected category or matchup probability gained.
-- Empirical-Bayes projections blending season, last 30 days, and last 7 days.
+- Daily recommendations selected by a checked-in evidence gate; the legacy category-fit model remains active until a candidate wins held-out testing.
+- Evaluation-ready blended and empirical-Bayes probability candidates using season, last 30 days, and last 7 days.
 - Dated Yahoo roster optimization that accounts for active-slot eligibility and displaced starters.
 - Confidence, category-level reasons, and percentage-volume effects for every recommendation.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
@@ -102,6 +102,8 @@ set -a; source .env.backtest.local; set +a
 pnpm backtest:recommender -- --season=2025REG
 ```
 
-Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command compares the legacy scorer, blended projections, and the Matchup Swing probability model using chronological held-out scenarios. It writes aggregate evidence to `reports/recommender-backtest.json` and exits with code `2` when the probability model does not clear the promotion gate.
+Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command compares the legacy scorer, blended projections, and the Matchup Swing probability model using chronological training, validation, and held-out scenarios. It writes aggregate evidence to `reports/recommender-backtest.json` and updates `model-artifacts/recommender.json`. Production reads that artifact and retains the legacy scorer unless a candidate clears both promotion checks.
+
+The checked-in artifact currently records `status: not-run` because no SportsDataIO key was available during implementation. This is intentional: the probability candidate is implemented and fixture-tested, but it is not presented as historically validated until the local backtest succeeds and its aggregate artifact is reviewed and committed.
 
 The app is recommendation-only. It does not add or drop Yahoo players.

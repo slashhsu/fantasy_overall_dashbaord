@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoCategories, demoFreeAgents, getDemoMatchups } from "@/lib/demo-data";
-import { canUseSlot, evaluateMatchup, normalCdf, poissonBinomialOutcomeValue, recommendFreeAgents, splitRatio, toNumber } from "@/lib/recommender";
+import { canUseSlot, evaluateMatchup, normalCdf, poissonBinomialOutcomeValue, recommendFreeAgents, recommendFreeAgentsProbability, splitRatio, toNumber } from "@/lib/recommender";
+import { RECOMMENDER_MODEL, SELECTED_RECOMMENDER } from "@/lib/recommender-model";
 import type { FreeAgent, LeagueCategory, MatchupTeam } from "@/lib/types";
 
 describe("recommender parity", () => {
@@ -51,6 +52,15 @@ describe("recommender parity", () => {
     expect(firstRun[0].score).toBeGreaterThanOrEqual(firstRun[1].score);
   });
 
+  it("retains the baseline scorer when no completed backtest artifact exists", () => {
+    expect(SELECTED_RECOMMENDER).toBe("baseline");
+    expect(RECOMMENDER_MODEL).toMatchObject({
+      id: "legacy-z-score",
+      selectedModel: "baseline",
+      selectionStatus: "baseline-retained",
+    });
+  });
+
   it("distinguishes a confirmed no-games day from an unavailable schedule", () => {
     const matchup = getDemoMatchups("demo.l.101", 19)[0];
     const needs = evaluateMatchup(matchup.teamA, matchup.teamB, demoCategories);
@@ -99,7 +109,7 @@ describe("recommender parity", () => {
     const weakStarter = makePlayer("starter", "Weak Starter", 5);
     const candidate = makePlayer("candidate", "Candidate", 20);
     const inactive = makePlayer("inactive", "Inactive Star", 40, "INJ");
-    const recommendations = recommendFreeAgents([candidate, inactive], needs, {
+    const recommendations = recommendFreeAgentsProbability([candidate, inactive], needs, {
       teamsPlaying: ["BOS"],
       strictGameDay: true,
       targetDate: "2026-02-20",
@@ -116,5 +126,59 @@ describe("recommender parity", () => {
     expect(recommendations[0].score).toBeGreaterThan(0);
     expect(canUseSlot(candidate, "G")).toBe(true);
     expect(canUseSlot(candidate, "C")).toBe(false);
+  });
+
+  it("uses attempt-volume fallback without erasing Yahoo percentage signal", () => {
+    const category: LeagueCategory = {
+      statId: "5", name: "Field Goal Percentage", displayName: "FG%", position: 0, enabled: true,
+    };
+    const needs = evaluateMatchup(
+      { teamKey: "l.t.1", name: "Team", stats: { "5": "45/100" } },
+      { teamKey: "l.t.2", name: "Opponent", stats: { "5": "50/100" } },
+      [category],
+    );
+    const percentagePlayer = (playerKey: string, percentage: number, status = ""): FreeAgent => ({
+      playerKey,
+      name: playerKey,
+      position: "SG",
+      eligiblePositions: ["SG", "G", "Util"],
+      team: "BOS",
+      status,
+      period: "season",
+      stats: { "Games Played (GP)": 40, "Field Goal Percentage": percentage },
+      statWindows: { season: { "Games Played (GP)": 40, "Field Goal Percentage": percentage } },
+    });
+    const recommendations = recommendFreeAgentsProbability([
+      percentagePlayer("efficient", 0.6, "Q"),
+      percentagePlayer("inefficient", 0.35),
+    ], needs, { strictGameDay: false, targetDate: "2026-02-20" });
+    expect(recommendations[0].name).toBe("efficient");
+    expect(recommendations[0].confidence).toBe("Low");
+    expect(recommendations[0].score).toBeGreaterThan(recommendations[1].score);
+  });
+
+  it("falls back to normalized blended scoring for unsupported categories", () => {
+    const category: LeagueCategory = {
+      statId: "99", name: "Custom Hustle", displayName: "HUSTLE", position: 0, enabled: true,
+    };
+    const needs = evaluateMatchup(
+      { teamKey: "l.t.1", name: "Team", stats: { "99": "10" } },
+      { teamKey: "l.t.2", name: "Opponent", stats: { "99": "12" } },
+      [category],
+    );
+    const customPlayer = (playerKey: string, value: number): FreeAgent => ({
+      playerKey,
+      name: playerKey,
+      position: "PF",
+      team: "BOS",
+      period: "season",
+      stats: { "Games Played (GP)": 10, "Custom Hustle": value },
+      statWindows: { season: { "Games Played (GP)": 10, "Custom Hustle": value } },
+    });
+    const recommendations = recommendFreeAgentsProbability([
+      customPlayer("high", 50), customPlayer("low", 10),
+    ], needs, { strictGameDay: false });
+    expect(recommendations[0]).toMatchObject({ name: "high", scoreType: "blended-z-score" });
+    expect(recommendations[0].score).toBeGreaterThan(recommendations[1].score);
   });
 });

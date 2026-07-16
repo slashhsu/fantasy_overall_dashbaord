@@ -426,6 +426,9 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
     : gameDay
       ? "No available player has a game on the selected date."
       : "There are no NBA games on the selected date.";
+  const modelStatusLabel = dashboard.model.selectionStatus === "historical-validated"
+    ? "Backtested"
+    : "Baseline retained";
   return (
     <>
       <div className="panel-heading">
@@ -436,7 +439,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
         </div>
         <div className="recommendation-statuses">
           <span className={`model-status ${dashboard.model.selectionStatus}`} title={dashboard.model.backtestMessage}>
-            {dashboard.model.version} · {dashboard.model.selectionStatus === "historical-validated" ? "Backtested" : "Provisional"}
+            {dashboard.model.version} · {modelStatusLabel}
           </span>
           <div
             className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}
@@ -461,7 +464,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                 <th><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
                 <th><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
                 <th>Game</th>
-                <th><SortButton label="Swing" column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /></th>
+                <th><SortButton label={dashboard.model.selectedModel === "probability" ? "Swing" : "Fit"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /></th>
                 <th>Confidence</th>
                 <th className="lineup-column">Lineup</th>
                 <th className="reason-column">Helps</th>
@@ -483,7 +486,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
                   <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
-                  <td title={player.scoreType === "matchup-probability" ? "Change in matchup win probability" : "Expected categories added"}><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span></td>
+                  <td title={player.scoreType === "matchup-probability" ? "Change in matchup win probability" : player.scoreType === "expected-categories" ? "Expected categories added" : "Weighted category fit versus the available-player pool"}><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span></td>
                   <td><span className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence}</span></td>
                   <td className="lineup-column"><span className={`lineup-label ${player.lineupImpact.status}`}>{player.lineupImpact.label}</span></td>
                   <td className="reason-column"><div className="tag-list">{player.reason.length ? player.reason.map((reason) => <span className="help-tag" key={reason}>{reason}</span>) : <span className="dash">--</span>}</div></td>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseRoster, parseScoreboard } from "@/lib/yahoo";
+import { mergePlayerWindows, parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseRoster, parseScoreboard } from "@/lib/yahoo";
 
 const gamesXml = `
 <fantasy_content xmlns="http://fantasysports.yahooapis.com/fantasy/v2/base.rng">
@@ -65,6 +65,27 @@ describe("Yahoo XML normalization", () => {
       team: "GSW",
       period: "lastmonth",
       stats: { "Games Played (GP)": 8, "Points Scored": 112 },
+    });
+  });
+
+  it("preserves every available Yahoo stat window when joining player pages", () => {
+    const page = (period: "season" | "lastmonth" | "lastweek", games: number, points: number) => parseFreeAgentPage(`
+      <fantasy_content><league><players><player>
+        <player_key>454.p.42</player_key><name><full>Example Player</full></name>
+        <editorial_team_abbr>GS</editorial_team_abbr><display_position>SG,SF</display_position>
+        <eligible_positions><position>SG</position><position>SF</position><position>Util</position></eligible_positions>
+        <player_stats><stats><stat><stat_id>0</stat_id><value>${games}</value></stat><stat><stat_id>12</stat_id><value>${points}</value></stat></stats></player_stats>
+      </player></players></league></fantasy_content>`, period)[0];
+    const merged = mergePlayerWindows([
+      page("season", 50, 700),
+      page("lastmonth", 12, 192),
+      page("lastweek", 3, 54),
+    ]);
+    expect(merged).toMatchObject({ period: "lastmonth", eligiblePositions: ["SG", "SF", "Util"] });
+    expect(merged?.statWindows).toEqual({
+      season: { "Games Played (GP)": 50, "Points Scored": 700 },
+      lastmonth: { "Games Played (GP)": 12, "Points Scored": 192 },
+      lastweek: { "Games Played (GP)": 3, "Points Scored": 54 },
     });
   });
 

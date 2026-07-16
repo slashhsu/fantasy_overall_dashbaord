@@ -246,7 +246,7 @@ export const parseFreeAgentPage = (xml: string, period: FreeAgent["period"]): Fr
 
 const PERIODS = ["lastmonth", "lastweek", "season"] as const;
 
-const mergePlayerWindows = (players: FreeAgent[]): FreeAgent | undefined => {
+export const mergePlayerWindows = (players: FreeAgent[]): FreeAgent | undefined => {
   const preferred = players.find((player) => player.period === "lastmonth")
     ?? players.find((player) => player.period === "lastweek")
     ?? players.find((player) => player.period === "season")
