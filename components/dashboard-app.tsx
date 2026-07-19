@@ -25,6 +25,7 @@ import type {
   MatchupCategoryRow,
   Recommendation,
 } from "@/lib/types";
+import { buildHeatmapRanges, heatmapCellStyle } from "@/lib/heatmap";
 
 type Tab = "recommendations" | "report" | "matchups" | "raw";
 type SortKey = "score" | "name" | "team" | keyof Recommendation["projections"];
@@ -537,19 +538,40 @@ function WeeklyReportView({ dashboard }: { dashboard: DashboardResponse }) {
 }
 
 function MatchupsView({ dashboard, onChoose }: { dashboard: DashboardResponse; onChoose: (id: string) => void }) {
+  const enabledCategories = useMemo(
+    () => dashboard.categories.filter((category) => category.enabled),
+    [dashboard.categories],
+  );
+  const heatmapRanges = useMemo(
+    () => buildHeatmapRanges(dashboard.matchups, enabledCategories),
+    [dashboard.matchups, enabledCategories],
+  );
   return (
     <>
-      <div className="panel-heading"><div><p className="eyebrow">League scoreboard</p><h2>All week {dashboard.week} matchups</h2><p>Select any matchup to recalculate the category board.</p></div></div>
+      <div className="panel-heading">
+        <div><p className="eyebrow">League scoreboard</p><h2>All week {dashboard.week} matchups</h2><p>Select a matchup. Colors compare every team by category; lower TO is greener.</p></div>
+        <div className="heatmap-legend" aria-label="Heatmap scale from low to high">
+          <span>Low</span><i aria-hidden="true" /><span>High</span>
+        </div>
+      </div>
       <div className="table-scroll">
         <table className="data-table matchup-table">
-          <thead><tr><th>Matchup</th>{dashboard.categories.filter((category) => category.enabled).map((category) => <th key={category.statId}>{category.displayName}</th>)}<th></th></tr></thead>
+          <thead><tr><th>Matchup</th>{enabledCategories.map((category) => <th key={category.statId}>{category.displayName}</th>)}<th></th></tr></thead>
           <tbody>
             {dashboard.matchups.map((matchup) => (
               <tr key={matchup.id} className={matchup.id === dashboard.selectedMatchupId ? "selected-row" : ""}>
-                <td><strong>{matchup.teamA.name}</strong><small>vs {matchup.teamB.name}</small></td>
-                {dashboard.categories.filter((category) => category.enabled).map((category) => (
-                  <td key={category.statId}><span className="matchup-value">{matchup.teamA.stats[category.statId] || "--"}</span><small>{matchup.teamB.stats[category.statId] || "--"}</small></td>
-                ))}
+                <td className="matchup-team-cell"><strong>{matchup.teamA.name}</strong><small>{matchup.teamB.name}</small></td>
+                {enabledCategories.map((category) => {
+                  const range = heatmapRanges.get(category.statId) ?? { min: 0, max: 0, reverse: false };
+                  const teamAValue = matchup.teamA.stats[category.statId] || "--";
+                  const teamBValue = matchup.teamB.stats[category.statId] || "--";
+                  return (
+                    <td className="heatmap-cell" key={category.statId}>
+                      <span className="heatmap-value" aria-label={`${matchup.teamA.name}: ${teamAValue}`} style={heatmapCellStyle(teamAValue, range)}>{teamAValue}</span>
+                      <span className="heatmap-value" aria-label={`${matchup.teamB.name}: ${teamBValue}`} style={heatmapCellStyle(teamBValue, range)}>{teamBValue}</span>
+                    </td>
+                  );
+                })}
                 <td><button type="button" className="row-action" onClick={() => onChoose(matchup.id)}>{matchup.id === dashboard.selectedMatchupId ? "Selected" : "View"}</button></td>
               </tr>
             ))}

@@ -183,8 +183,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .priority-cell strong { width: 28px; font-size: 9px; font-variant-numeric: tabular-nums; }
 .matchup-table { min-width: 1050px; }
 .matchup-table td:first-child { min-width: 180px; }
-.matchup-table .selected-row td { background: #f4f8fd; }
-.matchup-value { display: block; color: #24282e; font-weight: 700; }
+.matchup-table .selected-row td:first-child, .matchup-table .selected-row td:last-child { background: #f4f8fd; }
+.matchup-team-cell strong, .matchup-team-cell small { display: block; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+.matchup-team-cell small { margin-top: 7px !important; }
+.heatmap-cell { min-width: 68px; padding: 4px !important; }
+.heatmap-value { display: flex; align-items: center; justify-content: flex-end; min-height: 23px; padding: 3px 7px; border-radius: 3px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.heatmap-value + .heatmap-value { margin-top: 2px; }
+.heatmap-legend { display: flex; align-items: center; gap: 7px; color: #727983; font-size: 9px; font-weight: 650; }
+.heatmap-legend i { width: 116px; height: 9px; border: 1px solid #d9dde1; border-radius: 3px; background: linear-gradient(90deg, #8e0152, #de77ae, #fde0ef, #f7f7f7, #e6f5d0, #7fbc41, #276419); }
 .row-action { min-width: 54px; padding: 5px 8px; border: 1px solid #ccd8e5; border-radius: 5px; background: #f3f7fb; color: #2d6da9; font-size: 9px; font-weight: 700; }
 .raw-data { max-height: 620px; margin: 0; padding: 18px 20px; overflow: auto; background: #20242a; color: #dce2e9; font: 11px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
 .empty-state { min-height: 280px; padding: 52px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #98a0a9; text-align: center; }
