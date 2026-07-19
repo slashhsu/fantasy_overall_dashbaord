@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "modelVersion": "1.0.0",
-  "generatedAt": null,
+  "generatedAt": "2026-07-19T18:37:23.856Z",
   "provider": "SportsDataIO Discovery Lab",
-  "status": "not-run",
+  "status": "completed",
   "selectedModel": "baseline",
   "parameters": {
     "windowWeights": {
@@ -11,41 +11,146 @@
       "lastmonth": 0.3,
       "lastweek": 0.15
     },
-    "windowWeightsByStat": {},
+    "windowWeightsByStat": {
+      "fgm": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "fga": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "ftm": {
+        "season": 0.5,
+        "lastmonth": 0.5,
+        "lastweek": 0
+      },
+      "fta": {
+        "season": 0.5,
+        "lastmonth": 0.5,
+        "lastweek": 0
+      },
+      "threePm": {
+        "season": 0.5,
+        "lastmonth": 0.5,
+        "lastweek": 0
+      },
+      "threePa": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "pts": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "reb": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "ast": {
+        "season": 0.5,
+        "lastmonth": 0.25,
+        "lastweek": 0.25
+      },
+      "stl": {
+        "season": 0.75,
+        "lastmonth": 0.25,
+        "lastweek": 0
+      },
+      "blk": {
+        "season": 0.75,
+        "lastmonth": 0,
+        "lastweek": 0.25
+      },
+      "turnovers": {
+        "season": 0.75,
+        "lastmonth": 0.25,
+        "lastweek": 0
+      }
+    },
     "priorGames": 8,
     "percentagePriorAttempts": 30,
     "attemptVolumeFallbackPerGame": {
-      "Field Goal Percentage": 10,
-      "Free Throw Percentage": 3,
-      "3-point Percentage": 5
+      "Field Goal Percentage": 8.281498588657943,
+      "Free Throw Percentage": 2.206633307672569,
+      "3-point Percentage": 3.430523479599692
     },
     "averageWeeklyAttempts": {
-      "Field Goal Percentage": 500,
-      "Free Throw Percentage": 125,
-      "3-point Percentage": 220
+      "Field Goal Percentage": 579.704901206056,
+      "Free Throw Percentage": 154.4643315370798,
+      "3-point Percentage": 240.13664357197842
     },
     "weeklyResidualStandardDeviation": {
-      "Field Goal Percentage": 0.025,
-      "Free Throw Percentage": 0.035,
-      "3-point Percentage": 0.045,
-      "Field Goals Made": 16,
-      "Field Goals Attempted": 28,
-      "Free Throws Made": 10,
-      "Free Throws Attempted": 12,
-      "3-point Shots Made": 8,
-      "3-point Shots Attempted": 14,
-      "Points Scored": 45,
-      "Total Rebounds": 18,
+      "Field Goal Percentage": 0.027234994895603926,
+      "Free Throw Percentage": 0.032535585096893076,
+      "3-point Percentage": 0.03429562729400925,
+      "Field Goals Made": 19.032767617576166,
+      "Field Goals Attempted": 30.57122259889388,
+      "Free Throws Made": 15.381409652013838,
+      "Free Throws Attempted": 18.5307647503109,
+      "3-point Shots Made": 10.387815011202465,
+      "3-point Shots Attempted": 17.301071543216587,
+      "Points Scored": 49.77836245993353,
+      "Total Rebounds": 21.17104836965219,
       "Offensive Rebounds": 8,
       "Defensive Rebounds": 14,
-      "Assists": 14,
-      "Steals": 5,
-      "Blocked Shots": 5,
-      "Blocks": 5,
-      "Turnovers": 10,
+      "Assists": 15.39696089395869,
+      "Steals": 7.969862576849129,
+      "Blocked Shots": 6.2752352109741025,
+      "Blocks": 6.2752352109741025,
+      "Turnovers": 10.053147918100002,
       "Personal Fouls": 9
     }
   },
-  "metrics": null,
-  "message": "Historical evaluation has not run because no SPORTSDATAIO_API_KEY was available. The evidence gate therefore retains the legacy production scorer."
+  "metrics": {
+    "generatedAt": "2026-07-19T18:37:23.856Z",
+    "season": "2026REG",
+    "provider": "SportsDataIO Discovery Lab",
+    "status": "completed",
+    "warmupDays": 28,
+    "split": {
+      "trainingEnd": "2026-01-30",
+      "validationStart": "2026-01-31",
+      "heldoutStart": "2026-03-10"
+    },
+    "leagueSizes": [
+      8,
+      10,
+      12
+    ],
+    "rosterSize": 13,
+    "activeLimit": 10,
+    "rows": 26442,
+    "validationForecasts": 4999,
+    "heldoutForecasts": 5433,
+    "scenarios": 435,
+    "projectionError": {
+      "baseline": 0.6525803365403691,
+      "blended": 0.6439638216426962,
+      "probability": 0.6578998508358654
+    },
+    "realizedCategoryGain": {
+      "baseline": 0.029885057471264367,
+      "blended": 0.03793103448275862,
+      "probability": 0.05057471264367816
+    },
+    "confidenceIntervalsVersusBaseline": {
+      "blended": {
+        "lower": -0.029082774049217,
+        "upper": 0.04147982062780269
+      },
+      "probability": {
+        "lower": -0.021348314606741574,
+        "upper": 0.0655940594059406
+      }
+    },
+    "evidenceGate": "95% clustered-bootstrap lower bound above zero and projection NMAE within 2% of baseline",
+    "selectedModel": "baseline"
+  },
+  "message": "No candidate cleared the held-out evidence gate; the legacy production scorer is retained."
 }

@@ -99,11 +99,11 @@ The production app does not call SportsDataIO. Historical model evaluation is an
 ```bash
 cp .env.backtest.example .env.backtest.local
 set -a; source .env.backtest.local; set +a
-pnpm backtest:recommender -- --season=2025REG
+pnpm backtest:recommender -- --season=2026REG
 ```
 
-Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command compares the legacy scorer, blended projections, and the Matchup Swing probability model using chronological training, validation, and held-out scenarios. It writes aggregate evidence to `reports/recommender-backtest.json` and updates `model-artifacts/recommender.json`. Production reads that artifact and retains the legacy scorer unless a candidate clears both promotion checks.
+Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command discovers regular-season dates from the Discovery Lab schedule feed, checkpoints its per-date player-log downloads, and can resume after an API interruption. It compares the legacy scorer, blended projections, and the Matchup Swing probability model using chronological training, validation, and held-out scenarios. It writes aggregate evidence to `reports/recommender-backtest.json` and updates `model-artifacts/recommender.json`. Production reads that artifact and retains the legacy scorer unless a candidate clears both promotion checks.
 
-The checked-in artifact currently records `status: not-run` because no SportsDataIO key was available during implementation. This is intentional: the probability candidate is implemented and fixture-tested, but it is not presented as historically validated until the local backtest succeeds and its aggregate artifact is reviewed and committed.
+The checked-in artifact records the completed `2026REG` evaluation. Neither candidate's clustered-bootstrap confidence interval cleared zero, so the evidence gate retains the legacy scorer even though the probability candidate had the highest average realized category gain. The calibrated candidate parameters remain available for future re-evaluation without presenting the candidate as promoted.
 
 The app is recommendation-only. It does not add or drop Yahoo players.

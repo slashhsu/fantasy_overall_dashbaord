@@ -1,7 +1,45 @@
 {
-  "generatedAt": null,
+  "generatedAt": "2026-07-19T18:37:23.856Z",
+  "season": "2026REG",
   "provider": "SportsDataIO Discovery Lab",
-  "status": "not-run",
-  "selectedModel": "baseline",
-  "message": "No SPORTSDATAIO_API_KEY was available in the implementation environment. The evidence gate retains the legacy scorer. Run pnpm backtest:recommender after configuring the local-only key; the command replaces this report and the checked-in model artifact."
+  "status": "completed",
+  "warmupDays": 28,
+  "split": {
+    "trainingEnd": "2026-01-30",
+    "validationStart": "2026-01-31",
+    "heldoutStart": "2026-03-10"
+  },
+  "leagueSizes": [
+    8,
+    10,
+    12
+  ],
+  "rosterSize": 13,
+  "activeLimit": 10,
+  "rows": 26442,
+  "validationForecasts": 4999,
+  "heldoutForecasts": 5433,
+  "scenarios": 435,
+  "projectionError": {
+    "baseline": 0.6525803365403691,
+    "blended": 0.6439638216426962,
+    "probability": 0.6578998508358654
+  },
+  "realizedCategoryGain": {
+    "baseline": 0.029885057471264367,
+    "blended": 0.03793103448275862,
+    "probability": 0.05057471264367816
+  },
+  "confidenceIntervalsVersusBaseline": {
+    "blended": {
+      "lower": -0.029082774049217,
+      "upper": 0.04147982062780269
+    },
+    "probability": {
+      "lower": -0.021348314606741574,
+      "upper": 0.0655940594059406
+    }
+  },
+  "evidenceGate": "95% clustered-bootstrap lower bound above zero and projection NMAE within 2% of baseline",
+  "selectedModel": "baseline"
 }

@@ -3,7 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import baseArtifact from "../model-artifacts/recommender.json";
 
-const API_BASE = "https://api.sportsdata.io/v3/nba/stats/json";
+const FANTASY_API_BASE = "https://api.sportsdata.io/api/nba/fantasy/json";
+const ODDS_API_BASE = "https://api.sportsdata.io/api/nba/odds/json";
 const STAT_KEYS = ["fgm", "fga", "ftm", "fta", "threePm", "threePa", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
 const COUNT_CATEGORIES = ["threePm", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
 const WARMUP_DAYS = 28;
@@ -34,6 +35,18 @@ interface ProviderRow {
   Steals?: number;
   BlockedShots?: number;
   Turnovers?: number;
+  SeasonType?: number;
+}
+
+interface ProviderGame {
+  Day?: string;
+  DateTime?: string;
+  SeasonType?: number;
+}
+
+interface DownloadCheckpoint {
+  completedDates: string[];
+  rows: ProviderRow[];
 }
 
 interface GameRow {
@@ -462,22 +475,74 @@ const bootstrapInterval = (results: ScenarioResult[], candidate: Exclude<Candida
   return { lower: samples[50] ?? 0, upper: samples[1949] ?? 0 };
 };
 
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const fetchSportsData = async <T>(url: string, apiKey: string): Promise<T> => {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await fetch(url, {
+      headers: { "Ocp-Apim-Subscription-Key": apiKey },
+    });
+    if (response.ok) return response.json() as Promise<T>;
+    if ((response.status === 429 || response.status >= 500) && attempt < 4) {
+      await wait(1_000 * 2 ** attempt);
+      continue;
+    }
+    throw new Error(`SportsDataIO returned ${response.status} for ${new URL(url).pathname}: ${await response.text()}`);
+  }
+  throw new Error(`SportsDataIO request retries were exhausted for ${new URL(url).pathname}.`);
+};
+
+const discoveryLabDate = (date: string) => {
+  const value = new Date(`${date}T12:00:00Z`);
+  const month = value.toLocaleString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase();
+  return `${value.getUTCFullYear()}-${month}-${String(value.getUTCDate()).padStart(2, "0")}`;
+};
+
 const fetchRows = async (season: string, apiKey: string) => {
   const cacheDir = path.resolve(".cache/recommender");
   const cachePath = path.join(cacheDir, `${season}.json`);
+  const checkpointPath = path.join(cacheDir, `${season}.partial.json`);
   await mkdir(cacheDir, { recursive: true });
   if (existsSync(cachePath)) return JSON.parse(await readFile(cachePath, "utf8")) as ProviderRow[];
-  const response = await fetch(`${API_BASE}/PlayerGameStatsBySeason/${season}`, {
-    headers: { "Ocp-Apim-Subscription-Key": apiKey },
-  });
-  if (!response.ok) throw new Error(`SportsDataIO returned ${response.status}: ${await response.text()}`);
-  const payload = await response.json() as ProviderRow[];
+
+  const apiSeason = season.replace(/REG$/i, "");
+  const games = await fetchSportsData<ProviderGame[]>(`${ODDS_API_BASE}/Games/${apiSeason}`, apiKey);
+  const dates = [...new Set(games
+    .filter((game) => Number(game.SeasonType ?? 1) === 1)
+    .map((game) => String(game.Day ?? game.DateTime ?? "").slice(0, 10))
+    .filter(Boolean))].sort();
+  if (!dates.length) throw new Error(`SportsDataIO returned no regular-season game dates for ${apiSeason}.`);
+
+  const checkpoint = existsSync(checkpointPath)
+    ? JSON.parse(await readFile(checkpointPath, "utf8")) as DownloadCheckpoint
+    : { completedDates: [], rows: [] };
+  const completedDates = new Set(checkpoint.completedDates);
+  const payload = [...checkpoint.rows];
+  const remainingDates = dates.filter((date) => !completedDates.has(date));
+
+  for (let start = 0; start < remainingDates.length; start += 4) {
+    const batch = remainingDates.slice(start, start + 4);
+    const batches = await Promise.all(batch.map(async (date) => ({
+      date,
+      rows: await fetchSportsData<ProviderRow[]>(
+        `${FANTASY_API_BASE}/PlayerGameStatsByDate/${discoveryLabDate(date)}`,
+        apiKey,
+      ),
+    })));
+    for (const result of batches) {
+      payload.push(...result.rows.filter((row) => Number(row.SeasonType ?? 1) === 1));
+      completedDates.add(result.date);
+    }
+    await writeFile(checkpointPath, JSON.stringify({ completedDates: [...completedDates], rows: payload }), "utf8");
+    process.stderr.write(`Downloaded ${completedDates.size}/${dates.length} regular-season dates.\n`);
+  }
+
   await writeFile(cachePath, JSON.stringify(payload), "utf8");
   return payload;
 };
 
 const main = async () => {
-  const season = process.argv.find((argument) => argument.startsWith("--season="))?.split("=")[1] ?? "2025REG";
+  const season = process.argv.find((argument) => argument.startsWith("--season="))?.split("=")[1] ?? "2026REG";
   const apiKey = process.env.SPORTSDATAIO_API_KEY;
   if (!apiKey) throw new Error("SPORTSDATAIO_API_KEY is required for the historical backtest.");
   const rows = (await fetchRows(season, apiKey)).map(normalize).filter((row): row is GameRow => Boolean(row));
