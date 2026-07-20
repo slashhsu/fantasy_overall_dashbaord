@@ -1,19 +1,35 @@
 # Fantasy Basketball Desk
 
-A private, Vercel-ready Yahoo Fantasy Basketball dashboard. It discovers the latest NBA fantasy game available to the authenticated Yahoo account, supports every league in that game, recreates the weekly category report, and ranks daily available players using the matchup-aware logic from `fantasy_recommender.py`.
+A private, Vercel-ready Yahoo Fantasy Basketball workspace. It discovers the latest NBA fantasy game available to the authenticated Yahoo account, supports every league in that game, recreates the weekly category report, ranks daily available players, and provides a roster-aware draft assistant.
 
 ## Features
 
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
 - Weekly category results with close-loss and close-win context.
-- Daily recommendations selected by a checked-in evidence gate; the legacy category-fit model remains active until a candidate wins held-out testing.
+- Daily recommendations from the held-out validated Matchup Swing model.
 - Evaluation-ready blended and empirical-Bayes probability candidates using season, last 30 days, and last 7 days.
 - Dated Yahoo roster optimization that accounts for active-slot eligibility and displaced starters.
 - Confidence, category-level reasons, and percentage-volume effects for every recommendation.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
 - Brief server cache plus an explicit refresh control.
 - Demo mode for local UI testing without Yahoo credentials.
+- `/draft` live draft board with Yahoo ADP, snake-turn timing, positional scarcity, and dynamic roster fit.
+- Target, balanced, and punt controls for every enabled league category.
+- Yahoo draft-result sync plus a manual mock-draft mode with undo and locally persisted picks.
+
+## Draft Assistant
+
+The draft model follows the dynamic H-scoring idea described in [Dynamic quantification of player value for fantasy basketball](https://arxiv.org/abs/2409.09884): it evaluates each candidate in the context of the roster already drafted instead of treating a static Z-score list as universally optimal. It also uses the category aggregation principles in [Improving Algorithms for Fantasy Basketball](https://arxiv.org/abs/2307.02188); Rotisserie leagues use a balance-sensitive objective inspired by [Optimizing for Rotisserie Fantasy Basketball](https://arxiv.org/abs/2501.00933).
+
+For every available player, the implementation:
+
+1. Converts the latest usable Yahoo season totals into per-game category projections and uses attempt-volume impact for FG%, FT%, and 3PT%.
+2. Normalizes values against the league-sized draftable pool and simulates the marginal category-win or roto-value change after adding the player.
+3. Reassigns roster positions, measures scarcity against players likely to remain at the following snake turn, and estimates return probability from Yahoo ADP.
+4. Re-ranks immediately after every Yahoo-synced or manual pick. Weak categories can be targeted or explicitly punted; strongly unrecoverable categories are down-weighted only after enough roster evidence exists.
+
+During the offseason, the service first looks for usable current-game statistics and then falls back to the previous accessible Yahoo NBA season. Players without category history, including some rookies, remain visible through Yahoo ADP but are labeled `Market`; category production is never invented from missing totals. Yahoo's `draft_analysis` and `draftresults` resources provide market and live-board context, while all league credentials remain server-side.
 
 ## Local Setup
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergePlayerWindows, parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseRoster, parseScoreboard } from "@/lib/yahoo";
+import { mergePlayerWindows, parseDraftPlayerPage, parseDraftResults, parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseNbaGameHistory, parseRoster, parseScoreboard } from "@/lib/yahoo";
 
 const gamesXml = `
 <fantasy_content xmlns="http://fantasysports.yahooapis.com/fantasy/v2/base.rng">
@@ -117,5 +117,38 @@ describe("Yahoo XML normalization", () => {
       selectedPosition: "SG",
       eligiblePositions: ["SG", "SF", "Util"],
     });
+  });
+
+  it("parses Yahoo draft analysis, draft results, and NBA game history", () => {
+    const players = parseDraftPlayerPage(`
+      <fantasy_content><game><players><player>
+        <player_key>500.p.42</player_key><player_id>42</player_id><name><full>Draft Player</full></name>
+        <editorial_team_abbr>NY</editorial_team_abbr><display_position>PG,SG</display_position>
+        <eligible_positions><position>PG</position><position>SG</position></eligible_positions>
+        <draft_analysis><average_pick>17.4</average_pick><average_round>2.1</average_round><average_cost>31.5</average_cost><percent_drafted>0.98</percent_drafted></draft_analysis>
+        <player_stats><stats><stat><stat_id>0</stat_id><value>60</value></stat><stat><stat_id>12</stat_id><value>1200</value></stat></stats></player_stats>
+      </player></players></game></fantasy_content>`);
+    expect(players[0]).toMatchObject({
+      playerId: "42",
+      team: "NYK",
+      gamesPlayed: 60,
+      draftAnalysis: { averagePick: 17.4, averageRound: 2.1, averageCost: 31.5, percentDrafted: .98 },
+    });
+
+    const results = parseDraftResults(`
+      <fantasy_content><league><draft_results>
+        <draft_result><pick>2</pick><round>1</round><team_key>500.l.1.t.2</team_key><player_key>500.p.42</player_key><cost>44</cost></draft_result>
+        <draft_result><pick>1</pick><round>1</round><team_key>500.l.1.t.1</team_key><player_key>500.p.1</player_key></draft_result>
+      </draft_results></league></fantasy_content>`);
+    expect(results.map((result) => result.pick)).toEqual([1, 2]);
+    expect(results[1].cost).toBe(44);
+
+    const history = parseNbaGameHistory(`
+      <fantasy_content><games>
+        <game><game_key>499</game_key><code>nba</code><season>2025</season></game>
+        <game><game_key>501</game_key><code>nba</code><season>2026</season></game>
+        <game><game_key>500</game_key><code>nfl</code><season>2026</season></game>
+      </games></fantasy_content>`);
+    expect(history.map((game) => game.gameKey)).toEqual(["501", "499"]);
   });
 });

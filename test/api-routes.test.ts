@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { POST as login } from "@/app/api/login/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
+import { GET as draft } from "@/app/api/draft/route";
 
 describe("private dashboard API", () => {
   beforeEach(() => {
@@ -49,5 +50,27 @@ describe("private dashboard API", () => {
       "http://localhost/api/dashboard?leagueKey=demo.l.101&week=19&date=2025-02-14",
     ));
     expect(response.status).toBe(401);
+  });
+
+  it("returns a league-specific draft board data source", async () => {
+    const loginResponse = await login(new Request("http://localhost/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "test-password" }),
+    }));
+    const response = await draft(new Request(
+      "http://localhost/api/draft?leagueKey=demo.l.101",
+      { headers: { cookie: loginResponse.headers.get("set-cookie") ?? "" } },
+    ));
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      demoMode: true,
+      league: { leagueKey: "demo.l.101" },
+      projectionSource: "previous-season",
+      model: { id: "dynamic-draft-value", method: "roster-aware-h-score" },
+    });
+    expect(payload.players.length).toBeGreaterThan(5);
+    expect(payload.configuration.categories).toHaveLength(9);
   });
 });

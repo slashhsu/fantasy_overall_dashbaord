@@ -1,6 +1,6 @@
 export type MatchupSide = "Win" | "Lose" | "Draw" | "No Data";
 export type PlayerStatPeriod = "lastmonth" | "lastweek" | "season";
-export type LeagueScoringFormat = "each-category" | "most-categories" | "unknown";
+export type LeagueScoringFormat = "each-category" | "most-categories" | "rotisserie" | "points" | "unknown";
 
 export interface LeagueTeamSummary {
   key: string;
@@ -16,6 +16,9 @@ export interface LeagueSummary {
   startWeek: number;
   endWeek: number;
   scoringFormat?: LeagueScoringFormat;
+  teamCount?: number;
+  draftStatus?: string;
+  draftType?: string;
   userTeam: LeagueTeamSummary;
 }
 
@@ -25,6 +28,7 @@ export interface LeagueCategory {
   displayName: string;
   position: number;
   enabled: boolean;
+  scoringModifier?: number;
 }
 
 export interface RosterPosition {
@@ -36,6 +40,9 @@ export interface LeagueConfiguration {
   categories: LeagueCategory[];
   rosterPositions: RosterPosition[];
   scoringFormat: LeagueScoringFormat;
+  teamCount?: number;
+  draftStatus?: string;
+  draftType?: string;
 }
 
 export interface MatchupTeam {
@@ -85,6 +92,102 @@ export interface FreeAgent {
   period: PlayerStatPeriod | "unavailable";
   stats: Record<string, number>;
   statWindows?: Partial<Record<PlayerStatPeriod, Record<string, number>>>;
+}
+
+export interface DraftAnalysis {
+  averagePick: number | null;
+  averageRound: number | null;
+  averageCost: number | null;
+  percentDrafted: number | null;
+}
+
+export type DraftProjectionSource = "current-season" | "previous-season" | "market-only";
+
+export interface DraftPlayer {
+  playerKey: string;
+  playerId: string;
+  name: string;
+  position: string;
+  eligiblePositions: string[];
+  team: string;
+  headshotUrl?: string;
+  status?: string;
+  yahooRank: number | null;
+  draftAnalysis: DraftAnalysis;
+  gamesPlayed: number;
+  projectionSeason: number | null;
+  projectionSource: DraftProjectionSource;
+  stats: Record<string, number>;
+}
+
+export interface DraftResult {
+  pick: number;
+  round: number;
+  teamKey: string;
+  playerKey: string;
+  cost?: number;
+}
+
+export interface DraftDataResponse {
+  generatedAt: string;
+  cached: boolean;
+  demoMode: boolean;
+  league: LeagueSummary;
+  configuration: LeagueConfiguration;
+  players: DraftPlayer[];
+  draftResults: DraftResult[];
+  projectionSeason: number | null;
+  projectionSource: DraftProjectionSource;
+  model: {
+    id: "dynamic-draft-value";
+    name: "Dynamic Draft Value";
+    version: "1.0.0";
+    method: "roster-aware-h-score";
+  };
+}
+
+export type DraftCategoryMode = "target" | "balanced" | "punt";
+
+export interface DraftCategoryScore {
+  statId: string;
+  displayName: string;
+  zScore: number;
+  weightedScore: number;
+}
+
+export interface DraftRanking {
+  player: DraftPlayer;
+  rank: number;
+  score: number;
+  baseValue: number;
+  teamFit: number;
+  scarcity: number;
+  turnUrgency: number;
+  availabilityNextTurn: number | null;
+  recommendedSlot: string;
+  confidence: "High" | "Medium" | "Low" | "Market";
+  categoryScores: DraftCategoryScore[];
+  reasons: string[];
+  watchouts: string[];
+}
+
+export interface DraftTeamProfile {
+  statId: string;
+  displayName: string;
+  zScore: number;
+  percentile: number;
+  mode: DraftCategoryMode;
+}
+
+export interface DraftBoardResult {
+  rankings: DraftRanking[];
+  teamProfile: DraftTeamProfile[];
+  currentPick: number;
+  nextUserPick: number;
+  followingUserPick: number;
+  round: number;
+  picksUntilTurn: number;
+  inferredPunts: string[];
 }
 
 export interface RosterPlayer extends FreeAgent {

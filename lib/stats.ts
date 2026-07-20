@@ -24,6 +24,10 @@ const STAT_ID_NAMES: Record<string, string> = {
   "23": "Technical Fouls",
   "24": "Ejections",
   "25": "Flagrant Fouls",
+  "26": "Minutes Played",
+  "27": "Games Started",
+  "28": "Double-Doubles",
+  "29": "Triple-Doubles",
 };
 
 const NAME_ALIASES: Record<string, string> = {
@@ -58,6 +62,10 @@ const NAME_ALIASES: Record<string, string> = {
   TURNOVERS: "Turnovers",
   AT: "Assist/Turnover Ratio",
   ASSISTTURNOVERRATIO: "Assist/Turnover Ratio",
+  DD: "Double-Doubles",
+  DOUBLEDOUBLES: "Double-Doubles",
+  TD: "Triple-Doubles",
+  TRIPLEDOUBLES: "Triple-Doubles",
   PF: "Personal Fouls",
   PERSONALFOULS: "Personal Fouls",
 };
@@ -84,6 +92,8 @@ export const compactCategoryName = (name: string) => {
     "Blocked Shots": "BLK",
     Turnovers: "TO",
     "Assist/Turnover Ratio": "A/T",
+    "Double-Doubles": "DD",
+    "Triple-Doubles": "TD",
     "Personal Fouls": "PF",
   };
   return compact[name] ?? name;

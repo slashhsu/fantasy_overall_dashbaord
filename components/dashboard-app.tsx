@@ -10,13 +10,12 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
-  LogOut,
   Minus,
   Plus,
   RefreshCw,
   Search,
-  Trophy,
 } from "lucide-react";
+import { AppHeader } from "@/components/app-header";
 import type {
   ApiErrorPayload,
   DashboardResponse,
@@ -185,12 +184,6 @@ export function DashboardApp() {
     setMatchupId(nextMatchupId);
   };
 
-  const logout = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
-  };
-
   const sortedRecommendations = useMemo(() => {
     if (!dashboard) return [];
     const valueFor = (item: Recommendation) => {
@@ -226,23 +219,7 @@ export function DashboardApp() {
 
   return (
     <main className="min-h-screen">
-      <header className="app-header">
-        <div className="app-header-inner">
-          <div className="brand-lockup">
-            <span className="brand-icon"><Trophy size={17} aria-hidden="true" /></span>
-            <div>
-              <p className="brand-title">Fantasy Basketball Desk</p>
-              <p className="brand-subtitle">Yahoo weekly intelligence</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {dashboard?.demoMode ? <span className="demo-badge">Demo data</span> : null}
-            <button className="icon-button" onClick={logout} title="Sign out" aria-label="Sign out">
-              <LogOut size={17} />
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader demoMode={dashboard?.demoMode} />
 
       <div className="workspace-shell">
         <section className="control-bar" aria-label="Dashboard filters">
