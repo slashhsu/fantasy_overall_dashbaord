@@ -71,6 +71,10 @@ const sourceLabel = (data: DraftDataResponse) => data.projectionSource === "mark
   ? "Yahoo ADP only"
   : `${data.projectionSeason ?? "Prior"} actuals + Yahoo ADP`;
 
+const confidenceDescription = (ranking: DraftRanking) => ranking.confidence === "Market"
+  ? "Market confidence: ranked from Yahoo ADP because category history is unavailable."
+  : `${ranking.confidence} confidence: based on ${ranking.player.gamesPlayed} historical games.`;
+
 const modeOrder: DraftCategoryMode[] = ["target", "balanced", "punt"];
 
 function PlayerIdentity({ player }: { player: DraftPlayer }) {
@@ -336,14 +340,15 @@ export function DraftAssistant() {
               </div>
               <div className="table-scroll draft-table-scroll">
                 <table className="data-table draft-table">
-                  <thead><tr><th>#</th><th>Player</th><th>ADP</th><th>Score</th><th>Team fit</th><th>Scarcity</th><th>Next turn</th><th>Slot</th><th>Why</th><th>Pick</th></tr></thead>
+                  <thead><tr><th>#</th><th>Player</th><th>ADP</th><th>Score</th><th>Confidence</th><th>Team fit</th><th>Scarcity</th><th>Next turn</th><th>Slot</th><th>Why</th><th>Pick</th></tr></thead>
                   <tbody>
                     {rankings.map((ranking, index) => (
                       <tr key={ranking.player.playerKey} className={selectedRanking?.player.playerKey === ranking.player.playerKey ? "selected-draft-row" : ""} onClick={() => setSelectedPlayerKey(ranking.player.playerKey)}>
                         <td><span className={`rank-number ${index < 3 ? "top" : ""}`}>{index + 1}</span></td>
                         <td><PlayerIdentity player={ranking.player} /></td>
                         <td className="numeric-strong">{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? ranking.player.yahooRank ?? "--"}</td>
-                        <td><strong className="draft-score">{ranking.score.toFixed(1)}</strong><small className={`draft-confidence ${ranking.confidence.toLowerCase()}`}>{ranking.confidence}</small></td>
+                        <td><strong className="draft-score">{ranking.score.toFixed(1)}</strong></td>
+                        <td><span className={`draft-confidence-chip ${ranking.confidence.toLowerCase()}`} title={confidenceDescription(ranking)}>{ranking.confidence}</span></td>
                         <td><FeatureMeter value={ranking.teamFit} /></td>
                         <td><FeatureMeter value={ranking.scarcity} /></td>
                         <td>{ranking.availabilityNextTurn === null ? <span className="dash">--</span> : <span className={ranking.availabilityNextTurn < 35 ? "return-risk" : "return-safe"}>{ranking.availabilityNextTurn}%</span>}</td>
@@ -411,7 +416,7 @@ function PlayerDetail({ ranking, onMine, onTaken }: { ranking: DraftRanking; onM
   return (
     <section className="draft-player-detail">
       <div className="draft-detail-top"><PlayerIdentity player={ranking.player} /><strong>{ranking.score.toFixed(1)}</strong></div>
-      <div className="draft-detail-metrics"><div><span>ADP</span><strong>{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? "--"}</strong></div><div><span>Fit</span><strong>{ranking.teamFit.toFixed(0)}</strong></div><div><span>Return</span><strong>{ranking.availabilityNextTurn === null ? "--" : `${ranking.availabilityNextTurn}%`}</strong></div></div>
+      <div className="draft-detail-metrics"><div><span>ADP</span><strong>{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? "--"}</strong></div><div><span>Fit</span><strong>{ranking.teamFit.toFixed(0)}</strong></div><div><span>Return</span><strong>{ranking.availabilityNextTurn === null ? "--" : `${ranking.availabilityNextTurn}%`}</strong></div><div><span>Confidence</span><strong className={`draft-detail-confidence ${ranking.confidence.toLowerCase()}`} title={confidenceDescription(ranking)}>{ranking.confidence}</strong></div></div>
       <div className="draft-category-chips">{ranking.categoryScores.slice(0, 5).map((category) => <span key={category.statId} className={category.zScore >= 0 ? "positive" : "negative"}>{category.displayName} {category.zScore > 0 ? "+" : ""}{category.zScore.toFixed(1)}z</span>)}</div>
       {ranking.watchouts.length ? <div className="draft-watchouts">{ranking.watchouts.map((watchout) => <span key={watchout}>{watchout}</span>)}</div> : null}
       <div className="draft-detail-actions"><button type="button" className="primary-button" onClick={onMine}><UserPlus size={14} />Draft</button><button type="button" className="secondary-button" onClick={onTaken}><CircleX size={14} />Taken</button></div>
