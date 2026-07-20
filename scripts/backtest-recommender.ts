@@ -1,24 +1,44 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import baseArtifact from "../model-artifacts/recommender.json";
 
 const FANTASY_API_BASE = "https://api.sportsdata.io/api/nba/fantasy/json";
 const ODDS_API_BASE = "https://api.sportsdata.io/api/nba/odds/json";
 const STAT_KEYS = ["fgm", "fga", "ftm", "fta", "threePm", "threePa", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
-const COUNT_CATEGORIES = ["threePm", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
 const WARMUP_DAYS = 28;
 const ROSTER_SIZE = 13;
 const ACTIVE_LIMIT = 10;
+const REFERENCE_WEEKLY_DEVIATIONS: Record<string, number> = {
+  "Field Goal Percentage": 0.025,
+  "Free Throw Percentage": 0.035,
+  "3-point Shots Made": 8,
+  "Points Scored": 45,
+  "Total Rebounds": 18,
+  Assists: 14,
+  Steals: 5,
+  "Blocked Shots": 5,
+  Turnovers: 10,
+};
 type StatKey = (typeof STAT_KEYS)[number];
+type CountCategory = "threePm" | "pts" | "reb" | "ast" | "stl" | "blk" | "turnovers";
 type Stats = Record<StatKey, number>;
-type CandidateName = "baseline" | "blended" | "probability";
+type CandidateName = "baseline" | "blended" | "probability" | "ensemble";
 type WindowWeights = { season: number; lastmonth: number; lastweek: number };
 
-interface ProviderRow {
+interface ProbabilityRankConfig {
+  id: string;
+  weeklyDeviations: Record<string, number>;
+  weekdayScaling: boolean;
+}
+
+export interface ProviderRow {
   PlayerID?: number;
   Name?: string;
   Position?: string;
+  Team?: string;
+  Opponent?: string;
   Day?: string;
   DateTime?: string;
   Games?: number;
@@ -49,11 +69,15 @@ interface DownloadCheckpoint {
   rows: ProviderRow[];
 }
 
-interface GameRow {
+export interface GameRow {
   playerId: number;
   name: string;
   position: string;
+  team: string;
+  opponent: string;
   date: string;
+  minutes: number;
+  played: boolean;
   stats: Stats;
 }
 
@@ -61,13 +85,16 @@ interface FeatureRow extends GameRow {
   season: Stats;
   lastmonth: Stats;
   lastweek: Stats;
+  vendor: Stats;
   sampleSize: number;
 }
 
-interface ForecastRow extends GameRow {
+export interface ForecastRow extends GameRow {
   baseline: Stats;
   blended: Stats;
   probability: Stats;
+  vendor: Stats;
+  ensemble: Stats;
   sampleSize: number;
 }
 
@@ -82,9 +109,10 @@ interface ScenarioResult {
   baseline: number;
   blended: number;
   probability: number;
+  ensemble: number;
 }
 
-const emptyStats = (): Stats => ({
+export const emptyStats = (): Stats => ({
   fgm: 0, fga: 0, ftm: 0, fta: 0, threePm: 0, threePa: 0,
   pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, turnovers: 0,
 });
@@ -103,16 +131,22 @@ const mean = (rows: GameRow[]) => {
   return Object.fromEntries(STAT_KEYS.map((key) => [key, total[key] / rows.length])) as Stats;
 };
 
-const normalize = (row: ProviderRow): GameRow | undefined => {
+export const normalize = (row: ProviderRow): GameRow | undefined => {
   const playerId = Number(row.PlayerID);
   const date = String(row.Day ?? row.DateTime ?? "").slice(0, 10);
-  if (!Number.isFinite(playerId) || !date || Number(row.Games ?? 1) <= 0 || Number(row.Minutes ?? 1) <= 0) return undefined;
+  if (!Number.isFinite(playerId) || !date) return undefined;
   const number = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
+  const minutes = number(row.Minutes);
+  const played = number(row.Games ?? (minutes > 0 ? 1 : 0)) > 0 && minutes > 0;
   return {
     playerId,
     name: String(row.Name ?? `Player ${playerId}`),
     position: String(row.Position ?? "UTIL").split("-")[0].toUpperCase(),
+    team: String(row.Team ?? ""),
+    opponent: String(row.Opponent ?? ""),
     date,
+    minutes,
+    played,
     stats: {
       fgm: number(row.FieldGoalsMade),
       fga: number(row.FieldGoalsAttempted),
@@ -145,21 +179,34 @@ const previousDate = (date: string) => {
   return value.toISOString().slice(0, 10);
 };
 
-const buildFeatures = (rows: GameRow[]): FeatureRow[] => {
-  const histories = new Map<number, GameRow[]>();
-  return [...rows]
+export const buildFeatures = (rows: GameRow[], vendorRows: GameRow[]): FeatureRow[] => {
+  const actualByPlayerDate = new Map(rows.map((row) => [`${row.playerId}:${row.date}`, row]));
+  const playedByPlayer = new Map<number, GameRow[]>();
+  rows.filter((row) => row.played).forEach((row) => {
+    playedByPlayer.set(row.playerId, [...(playedByPlayer.get(row.playerId) ?? []), row]);
+  });
+  playedByPlayer.forEach((history) => history.sort((left, right) => left.date.localeCompare(right.date)));
+
+  return vendorRows
+    .filter((row) => row.minutes > 0)
     .sort((left, right) => left.date.localeCompare(right.date))
-    .flatMap((row) => {
-      const history = histories.get(row.playerId) ?? [];
-      histories.set(row.playerId, [...history, row]);
-      if (!history.length || daysBetween(history[0].date, row.date) < WARMUP_DAYS) return [];
-      const monthRows = history.filter((item) => daysBetween(item.date, row.date) <= 30);
-      const weekRows = history.filter((item) => daysBetween(item.date, row.date) <= 7);
+    .flatMap((vendor) => {
+      const history = (playedByPlayer.get(vendor.playerId) ?? []).filter((row) => row.date < vendor.date);
+      if (!history.length || daysBetween(history[0].date, vendor.date) < WARMUP_DAYS) return [];
+      const monthRows = history.filter((item) => daysBetween(item.date, vendor.date) <= 30);
+      const weekRows = history.filter((item) => daysBetween(item.date, vendor.date) <= 7);
+      const actual = actualByPlayerDate.get(`${vendor.playerId}:${vendor.date}`) ?? {
+        ...vendor,
+        minutes: 0,
+        played: false,
+        stats: emptyStats(),
+      };
       return [{
-        ...row,
+        ...actual,
         season: mean(history),
         lastmonth: mean(monthRows.length ? monthRows : history),
         lastweek: mean(weekRows.length ? weekRows : monthRows.length ? monthRows : history),
+        vendor: vendor.stats,
         sampleSize: history.length,
       }];
     });
@@ -231,20 +278,43 @@ const buildForecasts = (
   features: FeatureRow[],
   weightsByStat: Record<StatKey, WindowWeights>,
   priors: ReturnType<typeof positionPriors>,
+  ensembleWeights: Record<StatKey, number> = Object.fromEntries(STAT_KEYS.map((key) => [key, 0])) as Record<StatKey, number>,
 ): ForecastRow[] => features.map((feature) => {
   const blended = weightedProjection(feature, weightsByStat);
+  const probability = empiricalBayesProjection(feature, blended, priors);
+  const ensemble = Object.fromEntries(STAT_KEYS.map((key) => [
+    key,
+    feature.vendor[key] * ensembleWeights[key] + probability[key] * (1 - ensembleWeights[key]),
+  ])) as Stats;
   return {
     playerId: feature.playerId,
     name: feature.name,
     position: feature.position,
+    team: feature.team,
+    opponent: feature.opponent,
     date: feature.date,
+    minutes: feature.minutes,
+    played: feature.played,
     stats: feature.stats,
     baseline: feature.lastmonth,
     blended,
-    probability: empiricalBayesProjection(feature, blended, priors),
+    probability,
+    vendor: feature.vendor,
+    ensemble,
     sampleSize: feature.sampleSize,
   };
 });
+
+export const tuneEnsembleWeights = (validation: ForecastRow[]) => Object.fromEntries(STAT_KEYS.map((key) => {
+  const candidates = [0, 0.25, 0.5, 0.75, 1].map((vendorWeight) => ({
+    vendorWeight,
+    error: validation.reduce((sum, row) => {
+      const prediction = row.vendor[key] * vendorWeight + row.probability[key] * (1 - vendorWeight);
+      return sum + Math.abs(prediction - row.stats[key]);
+    }, 0) / Math.max(1, validation.length),
+  }));
+  return [key, candidates.sort((left, right) => left.error - right.error)[0]?.vendorWeight ?? 0];
+})) as Record<StatKey, number>;
 
 const categoryScore = (stats: Stats) => ({
   fgPct: stats.fga > 0 ? stats.fgm / stats.fga : 0,
@@ -277,25 +347,97 @@ const erf = (value: number) => {
 
 const normalCdf = (value: number) => 0.5 * (1 + erf(value / Math.sqrt(2)));
 
-const staticRank = (projection: Stats, team: Stats, opponent: Stats) => {
-  const current = categoryScore(team);
-  const other = categoryScore(opponent);
-  let score = 0;
-  for (const key of COUNT_CATEGORIES) {
-    const losing = key === "turnovers" ? current[key] > other[key] : current[key] < other[key];
-    const direction = key === "turnovers" ? -1 : 1;
-    score += projection[key] * direction * (losing ? 2 : 0.5);
-  }
-  score += (projection.fgm - other.fgPct * projection.fga) * (current.fgPct <= other.fgPct ? 4 : 1);
-  score += (projection.ftm - other.ftPct * projection.fta) * (current.ftPct <= other.ftPct ? 4 : 1);
-  return score;
+type CategoryScoreKey = keyof ReturnType<typeof categoryScore>;
+
+const categoryPriority = (key: CategoryScoreKey, team: Stats, opponent: Stats) => {
+  const current = categoryScore(team)[key];
+  const other = categoryScore(opponent)[key];
+  if (current === other) return 3.25;
+  const lowerIsBetter = key === "turnovers";
+  const winning = lowerIsBetter ? current < other : current > other;
+  const differenceRatio = Math.abs(current - other) / Math.max(Math.abs(current), 1);
+  const thresholds = key === "fgPct" || key === "ftPct" ? [0.05, 0.1, 0.15] : [0.1, 0.2, 0.3];
+  const level = differenceRatio < thresholds[0] ? 1 : differenceRatio < thresholds[1] ? 2 : differenceRatio < thresholds[2] ? 3 : 4;
+  return winning
+    ? ({ 1: 1.1, 2: 0.35, 3: 0, 4: 0 })[level]
+    : ({ 1: 4, 2: 2.75, 3: 1.25, 4: 0.35 })[level];
 };
 
-const probabilityRank = (projection: Stats, team: Stats, opponent: Stats) => {
+const zScoreMetric = (key: CategoryScoreKey, projection: Stats, team: Stats, opponent: Stats) => {
+  const current = categoryScore(team);
+  const other = categoryScore(opponent);
+  if (key === "fgPct") {
+    const target = current.fgPct <= other.fgPct ? other.fgPct : current.fgPct;
+    return projection.fgm - target * projection.fga;
+  }
+  if (key === "ftPct") {
+    const target = current.ftPct <= other.ftPct ? other.ftPct : current.ftPct;
+    return projection.ftm - target * projection.fta;
+  }
+  const statKey = key as CountCategory;
+  const value = projection[statKey];
+  return key === "turnovers" ? -value : value;
+};
+
+export const zScoreRank = (
+  candidates: ForecastRow[],
+  model: CandidateName,
+  team: Stats,
+  opponent: Stats,
+) => {
+  const categories: CategoryScoreKey[] = ["fgPct", "ftPct", "threePm", "pts", "reb", "ast", "stl", "blk", "turnovers"];
+  const descriptors = categories.map((key) => {
+    const values = candidates.map((row) => zScoreMetric(key, row[model], team, opponent));
+    const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+    const deviation = Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / Math.max(1, values.length));
+    return { key, average, deviation, weight: categoryPriority(key, team, opponent) };
+  }).filter((descriptor) => descriptor.weight > 0);
+
+  return [...candidates].sort((left, right) => {
+    const utility = (row: ForecastRow) => {
+      const reliability = 0.75 + 0.25 * Math.sqrt(Math.min(Math.max(row.sampleSize, 0), 8) / 8);
+      return descriptors.reduce((sum, descriptor) => {
+        const value = zScoreMetric(descriptor.key, row[model], team, opponent);
+        const standardized = descriptor.deviation > 0 ? (value - descriptor.average) / descriptor.deviation : 0;
+        return sum + standardized * descriptor.weight * reliability;
+      }, 0);
+    };
+    return utility(right) - utility(left);
+  })[0];
+};
+
+const probabilityRank = (
+  projection: Stats,
+  team: Stats,
+  opponent: Stats,
+  date: string,
+  config: ProbabilityRankConfig,
+) => {
   const before = categoryScore(team);
   const after = categoryScore(add(team, projection));
   const other = categoryScore(opponent);
-  const deviations = { fgPct: 0.025, ftPct: 0.035, threePm: 8, pts: 45, reb: 18, ast: 14, stl: 5, blk: 5, turnovers: 10 };
+  const categoryNames = {
+    fgPct: "Field Goal Percentage",
+    ftPct: "Free Throw Percentage",
+    threePm: "3-point Shots Made",
+    pts: "Points Scored",
+    reb: "Total Rebounds",
+    ast: "Assists",
+    stl: "Steals",
+    blk: "Blocked Shots",
+    turnovers: "Turnovers",
+  } as const;
+  const day = (new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const remainingFraction = Math.max(1 / 7, (7 - day) / 7);
+  const deviations = Object.fromEntries(Object.entries(categoryNames).map(([key, category]) => [
+    key,
+    config.weekdayScaling
+      ? Math.max(
+        (config.weeklyDeviations[category] ?? 1) * 0.28,
+        (config.weeklyDeviations[category] ?? 1) * Math.sqrt(remainingFraction),
+      )
+      : config.weeklyDeviations[category] ?? 1,
+  ])) as Record<keyof typeof categoryNames, number>;
   return (Object.keys(deviations) as Array<keyof typeof deviations>).reduce((sum, key) => {
     const direction = key === "turnovers" ? -1 : 1;
     const baseline = normalCdf(direction * (before[key] - other[key]) / deviations[key]);
@@ -348,9 +490,16 @@ const weakestActive = (rows: GameRow[], assignments: RosterAssignment[], team: n
     .at(-1);
 };
 
-const simulate = (rows: GameRow[], forecasts: ForecastRow[], trainingEnd: string, heldoutStart: string) => {
-  const training = rows.filter((row) => row.date <= trainingEnd);
-  const heldoutDates = [...new Set(rows.filter((row) => row.date >= heldoutStart).map((row) => row.date))].sort();
+const simulate = (
+  rows: GameRow[],
+  forecasts: ForecastRow[],
+  trainingEnd: string,
+  heldoutStart: string,
+  rankConfig: ProbabilityRankConfig,
+  evaluationEnd?: string,
+) => {
+  const training = rows.filter((row) => row.played && row.date <= trainingEnd);
+  const heldoutDates = [...new Set(forecasts.filter((row) => row.date >= heldoutStart).map((row) => row.date))].sort();
   const forecastByDate = new Map<string, ForecastRow[]>();
   forecasts.forEach((row) => forecastByDate.set(row.date, [...(forecastByDate.get(row.date) ?? []), row]));
   const results: ScenarioResult[] = [];
@@ -364,6 +513,7 @@ const simulate = (rows: GameRow[], forecasts: ForecastRow[], trainingEnd: string
       const weekEnd = new Date(`${week}T12:00:00Z`);
       weekEnd.setUTCDate(weekEnd.getUTCDate() + 6);
       const end = weekEnd.toISOString().slice(0, 10);
+      if (evaluationEnd && end > evaluationEnd) continue;
       const candidates = (forecastByDate.get(date) ?? []).filter((row) => !rostered.has(row.playerId));
       if (candidates.length < 5) continue;
 
@@ -377,14 +527,16 @@ const simulate = (rows: GameRow[], forecasts: ForecastRow[], trainingEnd: string
         const displacedForecast = (forecastByDate.get(date) ?? []).find((row) => row.playerId === displaced?.playerId);
         const noMove = categoryWins(finalTeam, finalOpponent);
         const selected = Object.fromEntries(([
-          "baseline", "blended", "probability",
+          "baseline", "blended", "probability", "ensemble",
         ] as CandidateName[]).map((model) => {
-          const ranked = [...candidates].sort((left, right) => {
-            const scorer = model === "probability" ? probabilityRank : staticRank;
-            const displacedProjection = displacedForecast?.[model] ?? emptyStats();
-            return scorer(subtract(right[model], displacedProjection), currentTeam, currentOpponent)
-              - scorer(subtract(left[model], displacedProjection), currentTeam, currentOpponent);
-          });
+          if (model === "baseline" || model === "blended") {
+            return [model, zScoreRank(candidates, model, currentTeam, currentOpponent)];
+          }
+          const displacedProjection = displacedForecast?.[model] ?? emptyStats();
+          const ranked = [...candidates].sort((left, right) => (
+            probabilityRank(subtract(right[model], displacedProjection), currentTeam, currentOpponent, date, rankConfig)
+            - probabilityRank(subtract(left[model], displacedProjection), currentTeam, currentOpponent, date, rankConfig)
+          ));
           return [model, ranked[0]];
         })) as Record<CandidateName, ForecastRow>;
         results.push({
@@ -392,6 +544,7 @@ const simulate = (rows: GameRow[], forecasts: ForecastRow[], trainingEnd: string
           baseline: categoryWins(add(finalTeam, subtract(selected.baseline.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
           blended: categoryWins(add(finalTeam, subtract(selected.blended.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
           probability: categoryWins(add(finalTeam, subtract(selected.probability.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
+          ensemble: categoryWins(add(finalTeam, subtract(selected.ensemble.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
         });
       }
     }
@@ -475,6 +628,12 @@ const bootstrapInterval = (results: ScenarioResult[], candidate: Exclude<Candida
   return { lower: samples[50] ?? 0, upper: samples[1949] ?? 0 };
 };
 
+export const passesEvidenceGate = (
+  candidateError: number,
+  baselineError: number,
+  interval: { lower: number; upper: number },
+) => interval.lower > 0 && candidateError <= baselineError * 1.02;
+
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const fetchSportsData = async <T>(url: string, apiKey: string): Promise<T> => {
@@ -498,10 +657,11 @@ const discoveryLabDate = (date: string) => {
   return `${value.getUTCFullYear()}-${month}-${String(value.getUTCDate()).padStart(2, "0")}`;
 };
 
-const fetchRows = async (season: string, apiKey: string) => {
+const fetchRows = async (season: string, apiKey: string, kind: "actual" | "projection" = "actual") => {
   const cacheDir = path.resolve(".cache/recommender");
-  const cachePath = path.join(cacheDir, `${season}.json`);
-  const checkpointPath = path.join(cacheDir, `${season}.partial.json`);
+  const suffix = kind === "actual" ? "" : ".projections";
+  const cachePath = path.join(cacheDir, `${season}${suffix}.json`);
+  const checkpointPath = path.join(cacheDir, `${season}${suffix}.partial.json`);
   await mkdir(cacheDir, { recursive: true });
   if (existsSync(cachePath)) return JSON.parse(await readFile(cachePath, "utf8")) as ProviderRow[];
 
@@ -519,13 +679,14 @@ const fetchRows = async (season: string, apiKey: string) => {
   const completedDates = new Set(checkpoint.completedDates);
   const payload = [...checkpoint.rows];
   const remainingDates = dates.filter((date) => !completedDates.has(date));
+  const endpoint = kind === "actual" ? "PlayerGameStatsByDate" : "PlayerGameProjectionStatsByDate";
 
   for (let start = 0; start < remainingDates.length; start += 4) {
     const batch = remainingDates.slice(start, start + 4);
     const batches = await Promise.all(batch.map(async (date) => ({
       date,
       rows: await fetchSportsData<ProviderRow[]>(
-        `${FANTASY_API_BASE}/PlayerGameStatsByDate/${discoveryLabDate(date)}`,
+        `${FANTASY_API_BASE}/${endpoint}/${discoveryLabDate(date)}`,
         apiKey,
       ),
     })));
@@ -534,7 +695,7 @@ const fetchRows = async (season: string, apiKey: string) => {
       completedDates.add(result.date);
     }
     await writeFile(checkpointPath, JSON.stringify({ completedDates: [...completedDates], rows: payload }), "utf8");
-    process.stderr.write(`Downloaded ${completedDates.size}/${dates.length} regular-season dates.\n`);
+    process.stderr.write(`Downloaded ${completedDates.size}/${dates.length} ${kind} regular-season dates.\n`);
   }
 
   await writeFile(cachePath, JSON.stringify(payload), "utf8");
@@ -543,40 +704,90 @@ const fetchRows = async (season: string, apiKey: string) => {
 
 const main = async () => {
   const season = process.argv.find((argument) => argument.startsWith("--season="))?.split("=")[1] ?? "2026REG";
-  const apiKey = process.env.SPORTSDATAIO_API_KEY;
-  if (!apiKey) throw new Error("SPORTSDATAIO_API_KEY is required for the historical backtest.");
+  const apiKey = process.env.SPORTSDATAIO_API_KEY ?? "";
+  const cacheDir = path.resolve(".cache/recommender");
+  const hasCachedInputs = existsSync(path.join(cacheDir, `${season}.json`))
+    && existsSync(path.join(cacheDir, `${season}.projections.json`));
+  if (!apiKey && !hasCachedInputs) {
+    throw new Error("SPORTSDATAIO_API_KEY is required when historical backtest inputs are not cached.");
+  }
   const rows = (await fetchRows(season, apiKey)).map(normalize).filter((row): row is GameRow => Boolean(row));
+  const vendorRows = (await fetchRows(season, apiKey, "projection"))
+    .map(normalize)
+    .filter((row): row is GameRow => Boolean(row));
   const dates = [...new Set(rows.map((row) => row.date))].sort();
   if (dates.length < 60) throw new Error(`Only ${dates.length} game dates were returned; a complete regular season is required.`);
   const trainingEnd = dates[Math.floor(dates.length * 0.6)];
+  const validationStart = dates[Math.floor(dates.length * 0.6) + 1];
   const heldoutStart = dates[Math.floor(dates.length * 0.8)];
-  const features = buildFeatures(rows);
+  const validationEnd = previousDate(heldoutStart);
+  const features = buildFeatures(rows, vendorRows);
   const validation = features.filter((row) => row.date > trainingEnd && row.date < heldoutStart);
   const weightsByStat = tuneWindowWeights(validation);
-  const priors = positionPriors(rows.filter((row) => row.date <= trainingEnd));
-  const forecasts = buildForecasts(features, weightsByStat, priors);
+  const priors = positionPriors(rows.filter((row) => row.played && row.date <= trainingEnd));
+  const provisionalForecasts = buildForecasts(features, weightsByStat, priors);
+  const ensembleWeightsByStat = tuneEnsembleWeights(
+    provisionalForecasts.filter((row) => row.date > trainingEnd && row.date < heldoutStart),
+  );
+  const forecasts = buildForecasts(features, weightsByStat, priors, ensembleWeightsByStat);
   const validationForecasts = forecasts.filter((row) => row.date > trainingEnd && row.date < heldoutStart);
   const heldout = forecasts.filter((row) => row.date >= heldoutStart);
-  const scenarios = simulate(rows, forecasts, trainingEnd, heldoutStart);
+  const calibratedParameters = calibrateProductionParameters(
+    validationForecasts,
+    rows.filter((row) => row.played && row.date <= trainingEnd),
+  );
+  const rankConfigs: ProbabilityRankConfig[] = [
+    {
+      id: "calibrated-dynamic",
+      weeklyDeviations: calibratedParameters.weeklyResidualStandardDeviation,
+      weekdayScaling: true,
+    },
+    {
+      id: "calibrated-static",
+      weeklyDeviations: calibratedParameters.weeklyResidualStandardDeviation,
+      weekdayScaling: false,
+    },
+    { id: "reference-dynamic", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: true },
+    { id: "reference-static", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: false },
+  ];
+  const validationRankCalibration = rankConfigs.map((config) => {
+    const results = simulate(rows, forecasts, trainingEnd, validationStart, config, validationEnd);
+    const interval = bootstrapInterval(results, "probability");
+    const realizedGain = results.reduce((sum, result) => sum + result.probability, 0) / Math.max(1, results.length);
+    return { config, scenarios: results.length, realizedGain, interval };
+  });
+  const selectedRankCalibration = [...validationRankCalibration].sort((left, right) => (
+    right.interval.lower - left.interval.lower || right.realizedGain - left.realizedGain
+  ))[0];
+  if (!selectedRankCalibration) throw new Error("No probability ranking calibration could be evaluated.");
+  const scenarios = simulate(
+    rows,
+    forecasts,
+    trainingEnd,
+    heldoutStart,
+    selectedRankCalibration.config,
+  );
   if (!heldout.length || !scenarios.length) throw new Error("The held-out partition produced no evaluable forecasts or matchup scenarios.");
 
-  const projectionError = Object.fromEntries(([
-    "baseline", "blended", "probability",
-  ] as CandidateName[]).map((model) => [model, normalizedMae(heldout, model)])) as Record<CandidateName, number>;
-  const realizedCategoryGain = Object.fromEntries(([
-    "baseline", "blended", "probability",
-  ] as CandidateName[]).map((model) => [
+  const models: CandidateName[] = ["baseline", "blended", "probability", "ensemble"];
+  const projectionError = Object.fromEntries(models.map(
+    (model) => [model, normalizedMae(heldout, model)],
+  )) as Record<CandidateName, number>;
+  const realizedCategoryGain = Object.fromEntries(models.map((model) => [
     model,
     scenarios.reduce((sum, result) => sum + result[model], 0) / scenarios.length,
   ])) as Record<CandidateName, number>;
   const confidenceIntervalsVersusBaseline = {
     blended: bootstrapInterval(scenarios, "blended"),
     probability: bootstrapInterval(scenarios, "probability"),
+    ensemble: bootstrapInterval(scenarios, "ensemble"),
   };
-  const eligible = (["blended", "probability"] as const).filter((model) =>
-    confidenceIntervalsVersusBaseline[model].lower > 0
-    && projectionError[model] <= projectionError.baseline * 1.02,
-  );
+  const productionCandidates = ["blended", "probability"] as const;
+  const eligible = productionCandidates.filter((model) => passesEvidenceGate(
+    projectionError[model],
+    projectionError.baseline,
+    confidenceIntervalsVersusBaseline[model],
+  ));
   let selectedModel: CandidateName = "baseline";
   if (eligible.length) {
     selectedModel = eligible.sort(
@@ -589,33 +800,53 @@ const main = async () => {
     provider: "SportsDataIO Discovery Lab",
     status: "completed",
     warmupDays: WARMUP_DAYS,
-    split: { trainingEnd, validationStart: dates[Math.floor(dates.length * 0.6) + 1], heldoutStart },
+    split: { trainingEnd, validationStart, heldoutStart },
     leagueSizes: [8, 10, 12],
     rosterSize: ROSTER_SIZE,
     activeLimit: ACTIVE_LIMIT,
     rows: rows.length,
+    vendorProjectionRows: vendorRows.length,
     validationForecasts: validationForecasts.length,
     heldoutForecasts: heldout.length,
     scenarios: scenarios.length,
     projectionError,
     realizedCategoryGain,
     confidenceIntervalsVersusBaseline,
+    methodology: {
+      candidateUniverse: "Historical pregame projections with projected minutes above zero; unexpected DNP outcomes remain zero-valued results.",
+      baselineRanking: "Production-parity matchup-priority Z-score with sample-size reliability.",
+      tuning: "Window and ensemble weights are fitted on validation dates only.",
+      productionCandidates,
+      researchOnlyCandidates: ["ensemble"],
+    },
+    probabilityRankCalibration: {
+      selected: selectedRankCalibration.config.id,
+      validation: validationRankCalibration.map(({ config, ...metrics }) => ({ id: config.id, ...metrics })),
+    },
+    ensembleWeightsByStat,
     evidenceGate: "95% clustered-bootstrap lower bound above zero and projection NMAE within 2% of baseline",
     selectedModel,
   };
-  const calibratedParameters = calibrateProductionParameters(
-    validationForecasts,
-    rows.filter((row) => row.date <= trainingEnd),
+  const baseParameters = Object.fromEntries(
+    Object.entries(baseArtifact.parameters).filter(([key]) => (
+      key !== "ensembleWeightsByStat" && key !== "probabilityRankMode"
+    )),
   );
   const artifact = {
     ...baseArtifact,
+    modelVersion: "1.1.0",
     generatedAt: report.generatedAt,
     status: "completed",
     selectedModel,
     parameters: {
-      ...baseArtifact.parameters,
+      ...baseParameters,
       windowWeightsByStat: weightsByStat,
       ...calibratedParameters,
+      weeklyResidualStandardDeviation: {
+        ...calibratedParameters.weeklyResidualStandardDeviation,
+        ...selectedRankCalibration.config.weeklyDeviations,
+      },
+      probabilityWeekdayScaling: selectedRankCalibration.config.weekdayScaling,
     },
     metrics: report,
     message: selectedModel === "baseline"
@@ -629,7 +860,10 @@ const main = async () => {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 };
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : "";
+if (import.meta.url === invokedPath) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}

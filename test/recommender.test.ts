@@ -52,12 +52,12 @@ describe("recommender parity", () => {
     expect(firstRun[0].score).toBeGreaterThanOrEqual(firstRun[1].score);
   });
 
-  it("retains the baseline scorer when no completed backtest artifact exists", () => {
-    expect(SELECTED_RECOMMENDER).toBe("baseline");
+  it("promotes the probability scorer after it clears the completed historical gate", () => {
+    expect(SELECTED_RECOMMENDER).toBe("probability");
     expect(RECOMMENDER_MODEL).toMatchObject({
-      id: "legacy-z-score",
-      selectedModel: "baseline",
-      selectionStatus: "baseline-retained",
+      id: "matchup-swing",
+      selectedModel: "probability",
+      selectionStatus: "historical-validated",
     });
   });
 

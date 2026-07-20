@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "modelVersion": "1.0.0",
-  "generatedAt": "2026-07-19T18:37:23.856Z",
+  "modelVersion": "1.1.0",
+  "generatedAt": "2026-07-20T21:17:38.935Z",
   "provider": "SportsDataIO Discovery Lab",
   "status": "completed",
-  "selectedModel": "baseline",
+  "selectedModel": "probability",
   "parameters": {
     "windowWeights": {
       "season": 0.55,
@@ -28,8 +28,8 @@
         "lastweek": 0
       },
       "fta": {
-        "season": 0.5,
-        "lastmonth": 0.5,
+        "season": 0.75,
+        "lastmonth": 0.25,
         "lastweek": 0
       },
       "threePm": {
@@ -48,13 +48,13 @@
         "lastweek": 0.25
       },
       "reb": {
-        "season": 0.5,
-        "lastmonth": 0.25,
+        "season": 0.75,
+        "lastmonth": 0,
         "lastweek": 0.25
       },
       "ast": {
-        "season": 0.5,
-        "lastmonth": 0.25,
+        "season": 0.75,
+        "lastmonth": 0,
         "lastweek": 0.25
       },
       "stl": {
@@ -63,9 +63,9 @@
         "lastweek": 0
       },
       "blk": {
-        "season": 0.75,
+        "season": 1,
         "lastmonth": 0,
-        "lastweek": 0.25
+        "lastweek": 0
       },
       "turnovers": {
         "season": 0.75,
@@ -86,29 +86,30 @@
       "3-point Percentage": 240.13664357197842
     },
     "weeklyResidualStandardDeviation": {
-      "Field Goal Percentage": 0.027234994895603926,
-      "Free Throw Percentage": 0.032535585096893076,
-      "3-point Percentage": 0.03429562729400925,
-      "Field Goals Made": 19.032767617576166,
-      "Field Goals Attempted": 30.57122259889388,
-      "Free Throws Made": 15.381409652013838,
-      "Free Throws Attempted": 18.5307647503109,
-      "3-point Shots Made": 10.387815011202465,
-      "3-point Shots Attempted": 17.301071543216587,
-      "Points Scored": 49.77836245993353,
-      "Total Rebounds": 21.17104836965219,
+      "Field Goal Percentage": 0.025,
+      "Free Throw Percentage": 0.035,
+      "3-point Percentage": 0.033461699205259696,
+      "Field Goals Made": 19.723001965398318,
+      "Field Goals Attempted": 32.05455277369899,
+      "Free Throws Made": 15.82067403537374,
+      "Free Throws Attempted": 18.995639081400167,
+      "3-point Shots Made": 8,
+      "3-point Shots Attempted": 17.998276871209704,
+      "Points Scored": 45,
+      "Total Rebounds": 18,
       "Offensive Rebounds": 8,
       "Defensive Rebounds": 14,
-      "Assists": 15.39696089395869,
-      "Steals": 7.969862576849129,
-      "Blocked Shots": 6.2752352109741025,
-      "Blocks": 6.2752352109741025,
-      "Turnovers": 10.053147918100002,
+      "Assists": 14,
+      "Steals": 5,
+      "Blocked Shots": 5,
+      "Blocks": 6.41372292597247,
+      "Turnovers": 10,
       "Personal Fouls": 9
-    }
+    },
+    "probabilityWeekdayScaling": false
   },
   "metrics": {
-    "generatedAt": "2026-07-19T18:37:23.856Z",
+    "generatedAt": "2026-07-20T21:17:38.935Z",
     "season": "2026REG",
     "provider": "SportsDataIO Discovery Lab",
     "status": "completed",
@@ -125,32 +126,106 @@
     ],
     "rosterSize": 13,
     "activeLimit": 10,
-    "rows": 26442,
-    "validationForecasts": 4999,
-    "heldoutForecasts": 5433,
+    "rows": 43038,
+    "vendorProjectionRows": 43316,
+    "validationForecasts": 4430,
+    "heldoutForecasts": 4991,
     "scenarios": 435,
     "projectionError": {
-      "baseline": 0.6525803365403691,
-      "blended": 0.6439638216426962,
-      "probability": 0.6578998508358654
+      "baseline": 0.651023959151212,
+      "blended": 0.6408108949903112,
+      "probability": 0.6463526497846075,
+      "ensemble": 0.6343755645821517
     },
     "realizedCategoryGain": {
-      "baseline": 0.029885057471264367,
-      "blended": 0.03793103448275862,
-      "probability": 0.05057471264367816
+      "baseline": 0.02413793103448276,
+      "blended": 0.0367816091954023,
+      "probability": 0.07471264367816093,
+      "ensemble": 0.08275862068965517
     },
     "confidenceIntervalsVersusBaseline": {
       "blended": {
-        "lower": -0.029082774049217,
-        "upper": 0.04147982062780269
+        "lower": -0.024886877828054297,
+        "upper": 0.04842342342342342
       },
       "probability": {
-        "lower": -0.021348314606741574,
-        "upper": 0.0655940594059406
+        "lower": 0.01699029126213592,
+        "upper": 0.08185840707964602
+      },
+      "ensemble": {
+        "lower": 0.018656716417910446,
+        "upper": 0.09810874704491726
       }
     },
+    "methodology": {
+      "candidateUniverse": "Historical pregame projections with projected minutes above zero; unexpected DNP outcomes remain zero-valued results.",
+      "baselineRanking": "Production-parity matchup-priority Z-score with sample-size reliability.",
+      "tuning": "Window and ensemble weights are fitted on validation dates only.",
+      "productionCandidates": [
+        "blended",
+        "probability"
+      ],
+      "researchOnlyCandidates": [
+        "ensemble"
+      ]
+    },
+    "probabilityRankCalibration": {
+      "selected": "reference-static",
+      "validation": [
+        {
+          "id": "calibrated-dynamic",
+          "scenarios": 390,
+          "realizedGain": 0.05128205128205128,
+          "interval": {
+            "lower": -0.055031446540880505,
+            "upper": 0.034013605442176874
+          }
+        },
+        {
+          "id": "calibrated-static",
+          "scenarios": 390,
+          "realizedGain": 0.046153846153846156,
+          "interval": {
+            "lower": -0.07012987012987013,
+            "upper": 0.036281179138321996
+          }
+        },
+        {
+          "id": "reference-dynamic",
+          "scenarios": 390,
+          "realizedGain": 0.04230769230769231,
+          "interval": {
+            "lower": -0.061004784688995214,
+            "upper": 0.016592920353982302
+          }
+        },
+        {
+          "id": "reference-static",
+          "scenarios": 390,
+          "realizedGain": 0.05384615384615385,
+          "interval": {
+            "lower": -0.0546218487394958,
+            "upper": 0.03762135922330097
+          }
+        }
+      ]
+    },
+    "ensembleWeightsByStat": {
+      "fgm": 0.75,
+      "fga": 0.75,
+      "ftm": 0.5,
+      "fta": 0.75,
+      "threePm": 0.75,
+      "threePa": 0.75,
+      "pts": 0.75,
+      "reb": 0.5,
+      "ast": 0.5,
+      "stl": 1,
+      "blk": 0.75,
+      "turnovers": 0.5
+    },
     "evidenceGate": "95% clustered-bootstrap lower bound above zero and projection NMAE within 2% of baseline",
-    "selectedModel": "baseline"
+    "selectedModel": "probability"
   },
-  "message": "No candidate cleared the held-out evidence gate; the legacy production scorer is retained."
+  "message": "probability cleared the held-out evidence gate and is promoted for production."
 }

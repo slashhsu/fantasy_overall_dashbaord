@@ -32,13 +32,13 @@ describe("private dashboard API", () => {
       week: 19,
       targetDate: "2025-02-14",
       schedule: { status: "available", source: "demo" },
-      model: { id: "legacy-z-score", selectionStatus: "baseline-retained" },
+      model: { id: "matchup-swing", selectionStatus: "historical-validated" },
       lineupAvailable: false,
     });
     expect(payload.categoryNeeds).toHaveLength(9);
     expect(payload.recommendations.length).toBeGreaterThan(0);
     expect(payload.recommendations[0]).toMatchObject({
-      scoreType: "legacy-z-score",
+      scoreType: "expected-categories",
       confidence: expect.any(String),
       lineupImpact: { status: "unknown" },
     });

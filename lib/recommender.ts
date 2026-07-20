@@ -364,6 +364,7 @@ const weekdayIndex = (targetDate: string) => {
 
 const residualDeviation = (category: string, targetDate: string) => {
   const weekly = MODEL_PARAMETERS.weeklyResidualStandardDeviation[category] ?? 1;
+  if (MODEL_PARAMETERS.probabilityWeekdayScaling === false) return weekly;
   const remainingFraction = Math.max(1 / 7, (7 - weekdayIndex(targetDate)) / 7);
   return Math.max(weekly * 0.28, weekly * Math.sqrt(remainingFraction));
 };

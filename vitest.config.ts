@@ -1,17 +1,21 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  root,
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
-      "server-only": path.resolve(__dirname, "test/server-only.ts"),
+      "@": root,
+      "server-only": path.resolve(root, "test/server-only.ts"),
     },
   },
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: ["./test/setup.ts"],
+    setupFiles: [path.resolve(root, "test/setup.ts")],
     coverage: {
       reporter: ["text", "html"],
     },
