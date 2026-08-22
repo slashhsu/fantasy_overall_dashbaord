@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-20T21:17:38.935Z",
+  "generatedAt": "2026-08-22T16:48:41.440Z",
   "season": "2026REG",
   "provider": "SportsDataIO Discovery Lab",
   "status": "completed",
@@ -21,11 +21,50 @@
   "validationForecasts": 4430,
   "heldoutForecasts": 4991,
   "scenarios": 435,
+  "evaluationProfiles": {
+    "standard-9cat": {
+      "scenarios": 435,
+      "categories": [
+        "FG%",
+        "FT%",
+        "3PM",
+        "PTS",
+        "REB",
+        "AST",
+        "STL",
+        "BLK",
+        "TO"
+      ]
+    },
+    "extended-oreb-at-dd": {
+      "scenarios": 435,
+      "categories": [
+        "FG%",
+        "FT%",
+        "3PM",
+        "PTS",
+        "REB",
+        "OREB",
+        "AST",
+        "A/T",
+        "STL",
+        "BLK",
+        "TO",
+        "DD"
+      ],
+      "realizedCategoryGain": {
+        "baseline": 0.040229885057471264,
+        "blended": 0.067816091954023,
+        "probability": 0.08620689655172414,
+        "ensemble": 0.11839080459770115
+      }
+    }
+  },
   "projectionError": {
-    "baseline": 0.651023959151212,
-    "blended": 0.6408108949903112,
-    "probability": 0.6463526497846075,
-    "ensemble": 0.6343755645821517
+    "baseline": 0.7147918244746865,
+    "blended": 0.7017561443461932,
+    "probability": 0.711716659704828,
+    "ensemble": 0.6731387075221236
   },
   "realizedCategoryGain": {
     "baseline": 0.02413793103448276,
@@ -109,10 +148,12 @@
     "threePa": 0.75,
     "pts": 0.75,
     "reb": 0.5,
+    "oreb": 0.5,
     "ast": 0.5,
     "stl": 1,
     "blk": 0.75,
-    "turnovers": 0.5
+    "turnovers": 0.5,
+    "doubleDoubles": 1
   },
   "evidenceGate": "95% clustered-bootstrap lower bound above zero and projection NMAE within 2% of baseline",
   "selectedModel": "probability"

@@ -4,15 +4,20 @@ import { withCache } from "@/lib/cache";
 import { getRuntimeConfig, isDemoMode } from "@/lib/config";
 import { getLeagueSummaries } from "@/lib/dashboard-service";
 import { demoCategories, demoFreeAgents } from "@/lib/demo-data";
+import { ValidationError } from "@/lib/errors";
 import type { DraftDataResponse, DraftPlayer, LeagueConfiguration } from "@/lib/types";
-import { fetchDraftPlayerPool, fetchDraftResults, fetchLeagueConfiguration } from "@/lib/yahoo";
+import { fetchDraftPlayerPool, fetchDraftResults, fetchLeagueConfiguration, fetchLeagueTeams } from "@/lib/yahoo";
 
 export const DRAFT_MODEL = {
   id: "dynamic-draft-value",
   name: "Dynamic Draft Value",
-  version: "1.0.0",
+  version: "2.0.0",
   method: "roster-aware-h-score",
 } as const;
+
+const globalDraftSync = globalThis as typeof globalThis & { __fantasyDraftSyncTimes?: Map<string, string> };
+const lastSyncTimes = globalDraftSync.__fantasyDraftSyncTimes ?? new Map<string, string>();
+globalDraftSync.__fantasyDraftSyncTimes = lastSyncTimes;
 
 const demoDraftPlayers = (): DraftPlayer[] => demoFreeAgents.map((player, index) => {
   const gamesPlayed = player.stats["Games Played (GP)"] ?? 0;
@@ -52,7 +57,7 @@ const demoDraftPlayers = (): DraftPlayer[] => demoFreeAgents.map((player, index)
 export const getDraftData = async (leagueKey: string, forceRefresh = false): Promise<DraftDataResponse> => {
   const leagueResult = await getLeagueSummaries(forceRefresh);
   const league = leagueResult.leagues.find((item) => item.leagueKey === leagueKey);
-  if (!league) throw new Error("The selected league is not available for this Yahoo account.");
+  if (!league) throw new ValidationError("The selected league is not available for this Yahoo account.");
 
   if (isDemoMode()) {
     const configuration: LeagueConfiguration = {
@@ -68,6 +73,7 @@ export const getDraftData = async (leagueKey: string, forceRefresh = false): Pro
       teamCount: league.teamCount ?? 10,
       draftStatus: "predraft",
       draftType: "live",
+      draftMode: "snake",
     };
     return {
       generatedAt: new Date().toISOString(),
@@ -77,6 +83,13 @@ export const getDraftData = async (leagueKey: string, forceRefresh = false): Pro
       configuration,
       players: demoDraftPlayers(),
       draftResults: [],
+      draftTeams: Array.from({ length: configuration.teamCount ?? 10 }, (_, index) => ({
+        key: `demo.l.101.t.${index + 1}`,
+        name: index === 0 ? league.userTeam.name : `Demo Team ${index + 1}`,
+      })),
+      draftMode: "snake",
+      sync: { status: "mock", lastSuccessfulAt: null },
+      auction: { defaultBudget: 200 },
       projectionSeason: 2025,
       projectionSource: "previous-season",
       model: DRAFT_MODEL,
@@ -84,7 +97,7 @@ export const getDraftData = async (leagueKey: string, forceRefresh = false): Pro
   }
 
   const { cacheTtlSeconds } = getRuntimeConfig();
-  const [configuration, pool, results] = await Promise.all([
+  const [configuration, pool, teams] = await Promise.all([
     withCache(
       `settings:${league.leagueKey}`,
       cacheTtlSeconds,
@@ -97,17 +110,31 @@ export const getDraftData = async (leagueKey: string, forceRefresh = false): Pro
       () => fetchDraftPlayerPool(league.leagueKey),
       forceRefresh,
     ),
-    withCache(
+    withCache(`draft-teams:${league.leagueKey}`, Math.max(cacheTtlSeconds, 300), () => fetchLeagueTeams(league.leagueKey), forceRefresh),
+  ]);
+  let results: { value: Awaited<ReturnType<typeof fetchDraftResults>>; cached: boolean; stale: boolean };
+  let sync: DraftDataResponse["sync"];
+  try {
+    results = await withCache(
       `draft-results:${league.leagueKey}`,
       10,
-      () => fetchDraftResults(league.leagueKey).catch(() => []),
+      () => fetchDraftResults(league.leagueKey),
       forceRefresh,
-    ),
-  ]);
+    );
+    if (!results.stale && !results.cached) lastSyncTimes.set(league.leagueKey, new Date().toISOString());
+    sync = {
+      status: results.stale ? "stale" : "live",
+      lastSuccessfulAt: lastSyncTimes.get(league.leagueKey) ?? (results.stale ? null : new Date().toISOString()),
+      message: results.stale ? "Yahoo sync failed; showing the last successful board." : undefined,
+    };
+  } catch {
+    results = { value: [], cached: false, stale: false };
+    sync = { status: "error", lastSuccessfulAt: lastSyncTimes.get(league.leagueKey) ?? null, message: "Yahoo draft sync is temporarily unavailable." };
+  }
 
   return {
     generatedAt: new Date().toISOString(),
-    cached: configuration.cached && pool.cached && results.cached && leagueResult.cached,
+    cached: configuration.cached && pool.cached && results.cached && teams.cached && leagueResult.cached,
     demoMode: false,
     league,
     configuration: {
@@ -118,6 +145,10 @@ export const getDraftData = async (leagueKey: string, forceRefresh = false): Pro
     },
     players: pool.value.players,
     draftResults: results.value,
+    draftTeams: teams.value,
+    draftMode: configuration.value.draftMode ?? "unknown",
+    sync,
+    auction: { defaultBudget: 200 },
     projectionSeason: pool.value.projectionSeason,
     projectionSource: pool.value.projectionSource,
     model: DRAFT_MODEL,
