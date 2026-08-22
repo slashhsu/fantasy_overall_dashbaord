@@ -4,6 +4,8 @@ node_modules/
 out/
 coverage/
 .cache/
+playwright-report/
+test-results/
 *.tsbuildinfo
 
 # Local configuration and credentials

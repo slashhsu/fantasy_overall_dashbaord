@@ -26,7 +26,7 @@ describe("Yahoo OAuth client", () => {
   it("surfaces Yahoo failures without treating them as successful data", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "access" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+      .mockImplementation(async () => new Response("rate limited", { status: 429 }));
     await expect(fetchYahooXml("/league/test/settings")).rejects.toBeInstanceOf(YahooApiError);
   });
 });

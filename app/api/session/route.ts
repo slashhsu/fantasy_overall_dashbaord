@@ -8,5 +8,5 @@ export async function GET(request: Request) {
   return NextResponse.json({
     authenticated: isRequestAuthenticated(request),
     modelVersion: `${RECOMMENDER_MODEL.id}@${RECOMMENDER_MODEL.version}`,
-  });
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }
