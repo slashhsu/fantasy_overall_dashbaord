@@ -7,22 +7,17 @@ const login = async (page: import("@playwright/test").Page) => {
   await expect(page).toHaveURL(/\/$/);
 };
 
-test("login, timezone, refresh, confidence, and keyboard navigation", async ({ page }) => {
+test("login, timezone, refresh, and hidden experimental navigation", async ({ page }) => {
   await login(page);
-  await expect(page.getByRole("heading", { name: "Best available players" })).toBeVisible();
+  await expect(page.locator(".report-table")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Recommendations" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Draft Assistant/i })).toHaveCount(0);
   const timezone = page.getByLabel("Time zone");
   await expect(timezone).toBeVisible();
   await timezone.selectOption("Asia/Taipei");
   await expect(timezone).toHaveValue("Asia/Taipei");
   await page.getByRole("button", { name: "Refresh" }).click();
-  await expect(page.locator(".recommendation-table tbody tr").first()).toBeVisible();
-  await page.locator(".confidence-popover summary").first().click();
-  await expect(page.locator(".confidence-popover").first()).toContainText(/games|sample|Market/i);
-  await page.getByRole("link", { name: /Draft Assistant/i }).click();
-  const row = page.locator(".draft-table tbody tr").first();
-  await row.focus();
-  await page.keyboard.press("Enter");
-  await expect(row).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".report-table tbody tr").first()).toBeVisible();
 });
 
 test("mock salary-cap flow records a team and winning bid", async ({ page }) => {
@@ -45,7 +40,7 @@ test("mobile controls contain wide tables without page overlap", async ({ page }
   await expect(page.locator(".table-scroll").first()).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  await page.getByRole("link", { name: /Draft Assistant/i }).click();
+  await page.goto("/draft");
   await expect(page.locator(".draft-table-scroll")).toBeVisible();
   const draftOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(draftOverflow).toBeLessThanOrEqual(1);

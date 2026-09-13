@@ -36,7 +36,6 @@ interface LeaguesResponse {
 }
 
 const tabs: Array<{ id: Tab; label: string }> = [
-  { id: "recommendations", label: "Recommendations" },
   { id: "report", label: "Weekly Report" },
   { id: "matchups", label: "Matchups" },
   { id: "raw", label: "Raw Data" },
@@ -111,7 +110,7 @@ export function DashboardApp() {
   const [targetDate, setTargetDate] = useState(() => dateInTimeZone("America/New_York"));
   const [matchupId, setMatchupId] = useState("");
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("recommendations");
+  const [activeTab, setActiveTab] = useState<Tab>("report");
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [error, setError] = useState("");
