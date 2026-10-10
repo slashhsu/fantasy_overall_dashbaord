@@ -38,4 +38,15 @@ describe("Yahoo OAuth client", () => {
       .mockImplementation(async () => new Response("rate limited", { status: 429 }));
     await expect(fetchYahooXml("/league/test/settings")).rejects.toBeInstanceOf(YahooApiError);
   });
+
+  it("identifies token refresh failures as OAuth errors", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 401 }));
+
+    await expect(fetchYahooXml("/users;use_login=1/games")).rejects.toMatchObject({
+      name: "YahooApiError",
+      source: "oauth",
+      status: 401,
+    });
+  });
 });

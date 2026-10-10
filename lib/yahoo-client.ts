@@ -23,6 +23,7 @@ export class YahooApiError extends Error {
     message: string,
     public status: number,
     public responseBody?: string,
+    public source: "oauth" | "fantasy" = "fantasy",
   ) {
     super(message);
     this.name = "YahooApiError";
@@ -63,9 +64,9 @@ const refreshAccessToken = async (force = false) => {
       signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     });
     const responseBody = await response.text();
-    if (!response.ok) throw new YahooApiError("Yahoo OAuth token refresh failed.", response.status, responseBody.slice(0, 2_000));
+    if (!response.ok) throw new YahooApiError("Yahoo OAuth token refresh failed.", response.status, responseBody.slice(0, 2_000), "oauth");
     const token = JSON.parse(responseBody) as { access_token?: string; expires_in?: number };
-    if (!token.access_token) throw new YahooApiError("Yahoo OAuth response did not include an access token.", 502);
+    if (!token.access_token) throw new YahooApiError("Yahoo OAuth response did not include an access token.", 502, undefined, "oauth");
     globalTokens.__yahooFantasyToken = {
       accessToken: token.access_token,
       expiresAt: Date.now() + (token.expires_in ?? 3600) * 1000,

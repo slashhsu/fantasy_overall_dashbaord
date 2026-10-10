@@ -372,4 +372,5 @@ export interface ApiErrorPayload {
   code?: string;
   details?: string;
   requestId?: string;
+  upstreamStatus?: number;
 }

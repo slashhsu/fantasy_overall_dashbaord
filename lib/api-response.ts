@@ -18,11 +18,15 @@ export const handleApiError = (error: unknown) => {
     ...(error instanceof YahooApiError ? { upstreamStatus: error.status } : {}),
   }));
   if (error instanceof YahooApiError) {
+    const oauthFailure = error.source === "oauth";
     return NextResponse.json<ApiErrorPayload>(
       {
-        error: "Yahoo Fantasy could not complete the request.",
-        code: "YAHOO_API_ERROR",
+        error: oauthFailure
+          ? `Yahoo OAuth token refresh failed (${error.status}).`
+          : `Yahoo Fantasy API request failed (${error.status}).`,
+        code: oauthFailure ? "YAHOO_OAUTH_ERROR" : "YAHOO_API_ERROR",
         requestId,
+        upstreamStatus: error.status,
       },
       { status: 502, headers: { "Cache-Control": "private, no-store" } },
     );
