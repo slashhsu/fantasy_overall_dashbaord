@@ -19,6 +19,15 @@ describe("Yahoo OAuth client", () => {
 
     await expect(fetchYahooXml("/users;use_login=1/games")).resolves.toBe("<fantasy_content />");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const tokenRequest = fetchMock.mock.calls[0][1];
+    const tokenHeaders = tokenRequest?.headers as Record<string, string>;
+    const tokenBody = tokenRequest?.body as URLSearchParams;
+    expect(tokenHeaders.Authorization).toBeUndefined();
+    expect(tokenBody.get("client_id")).toBe("client");
+    expect(tokenBody.get("client_secret")).toBe("secret");
+    expect(tokenBody.get("grant_type")).toBe("refresh_token");
+
     expect(String(fetchMock.mock.calls[1][1]?.headers && (fetchMock.mock.calls[1][1]?.headers as Record<string, string>).Authorization)).toBe("Bearer access");
     expect(JSON.stringify(fetchMock.mock.calls[1])).not.toContain("secret");
   });

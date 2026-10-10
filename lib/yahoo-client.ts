@@ -47,15 +47,15 @@ const refreshAccessToken = async (force = false) => {
   const refresh = (async () => {
     const config = getYahooConfig();
     const body = new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
       grant_type: "refresh_token",
       refresh_token: config.refreshToken,
       redirect_uri: config.redirectUri,
     });
-    const basicCredentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
     const response = await fetch(TOKEN_URL, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${basicCredentials}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
