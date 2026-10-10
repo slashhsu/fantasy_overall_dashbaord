@@ -20,6 +20,7 @@ export const RECOMMENDER_MODEL: RecommendationModelSummary = {
   selectedModel: SELECTED_RECOMMENDER,
   selectionStatus: SELECTED_RECOMMENDER === "baseline" ? "baseline-retained" : "historical-validated",
   backtestMessage: artifact.message,
+  validationLabel: artifact.validationLabel,
 };
 
 export const MODEL_PARAMETERS = {

@@ -4,6 +4,7 @@ import type {
   DraftCategoryScore,
   DraftPlayer,
   DraftRanking,
+  DraftMode,
   LeagueCategory,
   LeagueScoringFormat,
   RosterPosition,
@@ -171,6 +172,7 @@ const buildCategoryDescriptors = (
       const imputed = positions.length
         ? mean(positions.map((position) => positionMeans.get(position) ?? average))
         : average;
+      if (player.gamesPlayed <= 0) return [player.playerKey, 0];
       return [player.playerKey, clamp(((Number.isFinite(observed) ? observed : imputed) - average) / deviation, -3.5, 3.5)];
     }));
     return { category, zScores };
@@ -253,6 +255,19 @@ export const nextSnakePicks = (currentPick: number, teamCount: number, draftSlot
   };
 };
 
+export const nextLinearPicks = (currentPick: number, teamCount: number, draftSlot: number) => {
+  const safeTeams = clamp(Math.floor(teamCount), 2, 30);
+  const safeSlot = clamp(Math.floor(draftSlot), 1, safeTeams);
+  let nextUserPick = safeSlot;
+  while (nextUserPick < currentPick) nextUserPick += safeTeams;
+  return {
+    nextUserPick,
+    followingUserPick: nextUserPick + safeTeams,
+    round: Math.floor((currentPick - 1) / safeTeams) + 1,
+    picksUntilTurn: Math.max(0, nextUserPick - currentPick),
+  };
+};
+
 const poissonBinomialMajority = (probabilities: number[]) => {
   const distribution = Array(probabilities.length + 1).fill(0) as number[];
   distribution[0] = 1;
@@ -281,11 +296,28 @@ const featureScale = (value: number, values: number[]) => {
   return normalCdf((value - mean(values)) / deviation) * 100;
 };
 
-const projectionConfidence = (player: DraftPlayer): DraftRanking["confidence"] => {
-  if (player.gamesPlayed >= 40) return "High";
-  if (player.gamesPlayed >= 20) return "Medium";
-  if (player.gamesPlayed > 0) return "Low";
-  return "Market";
+const projectionConfidence = (player: DraftPlayer) => {
+  if (player.projectionSource === "market-only" || player.gamesPlayed <= 0) {
+    return { label: "Market" as const, score: 15, reasons: ["Yahoo market signal only", "No category projection"] };
+  }
+  let score = Math.min(90, 30 + player.gamesPlayed * 1.5);
+  const reasons = [`${player.gamesPlayed} projection games`];
+  if (player.projectionSource === "previous-season") {
+    score = Math.min(score, 69);
+    reasons.push("Previous-season data is capped at Medium");
+  } else {
+    reasons.push("Current-season data");
+  }
+  if (player.draftAnalysis.averagePick === null && player.yahooRank === null) {
+    score -= 15;
+    reasons.push("No Yahoo market coverage");
+  }
+  if (player.status) {
+    score -= 15;
+    reasons.push(`Yahoo health status ${player.status}`);
+  }
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { label: score >= 75 ? "High" as const : score >= 45 ? "Medium" as const : "Low" as const, score, reasons };
 };
 
 export interface BuildDraftBoardOptions {
@@ -298,6 +330,11 @@ export interface BuildDraftBoardOptions {
   draftedPlayerKeys: Iterable<string>;
   userPlayerKeys: Iterable<string>;
   categoryModes?: Record<string, DraftCategoryMode>;
+  draftMode?: DraftMode;
+  auctionBudget?: number;
+  userSpent?: number;
+  auctionSpent?: number;
+  auctionExpectedSpent?: number;
 }
 
 export const buildDraftBoard = (options: BuildDraftBoardOptions): DraftBoardResult => {
@@ -308,7 +345,10 @@ export const buildDraftBoard = (options: BuildDraftBoardOptions): DraftBoardResu
   const slots = expandedRosterSlots(options.rosterPositions);
   const totalRosterSize = slots.length;
   const currentPick = draftedKeys.size + 1;
-  const turn = nextSnakePicks(currentPick, options.teamCount, options.draftSlot);
+  const draftMode = options.draftMode ?? "snake";
+  const turn = draftMode === "linear"
+    ? nextLinearPicks(currentPick, options.teamCount, options.draftSlot)
+    : nextSnakePicks(currentPick, options.teamCount, options.draftSlot);
   const activeCategories = options.categories.filter((category) => category.enabled);
   const descriptors = buildCategoryDescriptors(
     options.players,
@@ -354,7 +394,12 @@ export const buildDraftBoard = (options: BuildDraftBoardOptions): DraftBoardResu
       ((teamSums.get(descriptor.category.statId) ?? 0) + (descriptor.zScores.get(player.playerKey) ?? 0)) / probabilitySigma,
     ));
     let dynamicValue: number;
-    if (options.scoringFormat === "most-categories") {
+    if (options.scoringFormat === "rotisserie") {
+      dynamicValue = projectedProbabilities.reduce((sum, probability, index) => {
+        const before = currentProbabilities[index] ?? 0.5;
+        return sum + (probability - before) * Math.max(1, options.teamCount - 1) * (weights[index] ?? 1);
+      }, 0);
+    } else if (options.scoringFormat === "most-categories") {
       const effectiveProjected = projectedProbabilities.map((probability, index) => (
         (options.categoryModes?.[descriptors[index]?.category.statId ?? ""] ?? "balanced") === "punt"
           ? 0
@@ -424,11 +469,9 @@ export const buildDraftBoard = (options: BuildDraftBoardOptions): DraftBoardResu
     const urgencyPercentile = featureScale(urgencyValues[index] ?? 0, urgencyValues);
     const marketPercentile = featureScale(marketValues[index] ?? -1_000, marketValues);
     const marketOnly = item.player.gamesPlayed <= 0;
-    const composite = options.scoringFormat === "points"
-      ? dynamicPercentile * 0.45 + scarcityPercentile * 0.2 + urgencyPercentile * 0.15 + marketPercentile * 0.2
-      : marketOnly
-        ? marketPercentile * 0.65 + scarcityPercentile * 0.15 + urgencyPercentile * 0.2
-        : dynamicPercentile * 0.55 + basePercentile * 0.15 + scarcityPercentile * 0.15 + urgencyPercentile * 0.1 + marketPercentile * 0.05;
+    const composite = marketOnly
+      ? marketPercentile * 0.25 + scarcityPercentile * 0.15 + urgencyPercentile * 0.1
+      : dynamicPercentile * 0.4 + marketPercentile * 0.25 + scarcityPercentile * 0.15 + basePercentile * 0.1 + urgencyPercentile * 0.1;
     const sortedCategories = [...item.categoryScores].sort((left, right) => right.weightedScore - left.weightedScore);
     const reasons = sortedCategories
       .filter((category) => category.weightedScore > 0.25)
@@ -462,21 +505,47 @@ export const buildDraftBoard = (options: BuildDraftBoardOptions): DraftBoardResu
     };
   }).sort((left, right) => right.composite - left.composite || marketRank(left.item.player) - marketRank(right.item.player));
 
-  const rankings: DraftRanking[] = scored.map((entry, index) => ({
-    player: entry.item.player,
-    rank: index + 1,
-    score: round(entry.composite),
-    baseValue: round(entry.basePercentile),
-    teamFit: round(entry.dynamicPercentile),
-    scarcity: round(entry.scarcityPercentile),
-    turnUrgency: round(entry.urgencyPercentile),
-    availabilityNextTurn: entry.item.availabilityNextTurn === null ? null : round(entry.item.availabilityNextTurn * 100),
-    recommendedSlot: entry.item.slot,
-    confidence: projectionConfidence(entry.item.player),
-    categoryScores: [...entry.item.categoryScores].sort((left, right) => right.weightedScore - left.weightedScore),
-    reasons: entry.reasons,
-    watchouts: entry.watchouts,
-  }));
+  const budget = Math.max(totalRosterSize, options.auctionBudget ?? 200);
+  const remainingSlots = Math.max(1, totalRosterSize - userRoster.length);
+  const maxBid = Math.max(1, budget - (options.userSpent ?? 0) - (remainingSlots - 1));
+  const draftable = scored.slice(0, Math.min(scored.length, options.teamCount * totalRosterSize));
+  const replacement = draftable.length ? draftable[draftable.length - 1].composite : 0;
+  const marginalTotal = draftable.reduce((sum, entry) => sum + Math.max(0, entry.composite - replacement), 0);
+  const discretionaryPool = Math.max(0, (budget - totalRosterSize) * options.teamCount);
+  const inflation = (options.auctionExpectedSpent ?? 0) > 0
+    ? clamp((options.auctionSpent ?? 0) / (options.auctionExpectedSpent ?? 1), 0.75, 1.5)
+    : 1;
+  const rankings: DraftRanking[] = scored.map((entry, index) => {
+    const confidence = projectionConfidence(entry.item.player);
+    const marginalValue = Math.max(0, entry.composite - replacement);
+    const recommendedPrice = draftMode === "salary-cap"
+      ? Math.min(maxBid, Math.max(1, Math.round((1 + (marginalTotal > 0 ? discretionaryPool * marginalValue / marginalTotal : 0)) * inflation)))
+      : null;
+    const yahooAav = entry.item.player.draftAnalysis.averageCost;
+    return {
+      player: entry.item.player,
+      rank: index + 1,
+      score: round(entry.composite),
+      baseValue: round(entry.basePercentile),
+      teamFit: round(entry.dynamicPercentile),
+      scarcity: round(entry.scarcityPercentile),
+      turnUrgency: round(entry.urgencyPercentile),
+      availabilityNextTurn: entry.item.availabilityNextTurn === null ? null : round(entry.item.availabilityNextTurn * 100),
+      estimatedReturn: draftMode === "snake" || draftMode === "linear"
+        ? (entry.item.availabilityNextTurn === null ? null : round(entry.item.availabilityNextTurn * 100))
+        : null,
+      recommendedPrice,
+      maxBid: draftMode === "salary-cap" ? maxBid : null,
+      auctionValue: recommendedPrice === null || yahooAav === null ? null : round(recommendedPrice - yahooAav),
+      recommendedSlot: entry.item.slot,
+      confidence: confidence.label,
+      confidenceScore: confidence.score,
+      confidenceReasons: confidence.reasons,
+      categoryScores: [...entry.item.categoryScores].sort((left, right) => right.weightedScore - left.weightedScore),
+      reasons: entry.reasons,
+      watchouts: entry.watchouts,
+    };
+  });
 
   const teamProfile = descriptors.map((descriptor) => {
     const mode = options.categoryModes?.[descriptor.category.statId] ?? "balanced";

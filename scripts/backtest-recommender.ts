@@ -6,7 +6,7 @@ import baseArtifact from "../model-artifacts/recommender.json";
 
 const FANTASY_API_BASE = "https://api.sportsdata.io/api/nba/fantasy/json";
 const ODDS_API_BASE = "https://api.sportsdata.io/api/nba/odds/json";
-const STAT_KEYS = ["fgm", "fga", "ftm", "fta", "threePm", "threePa", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
+const STAT_KEYS = ["fgm", "fga", "ftm", "fta", "threePm", "threePa", "pts", "reb", "oreb", "ast", "stl", "blk", "turnovers", "doubleDoubles"] as const;
 const WARMUP_DAYS = 28;
 const ROSTER_SIZE = 13;
 const ACTIVE_LIMIT = 10;
@@ -16,13 +16,17 @@ const REFERENCE_WEEKLY_DEVIATIONS: Record<string, number> = {
   "3-point Shots Made": 8,
   "Points Scored": 45,
   "Total Rebounds": 18,
+  "Offensive Rebounds": 8,
   Assists: 14,
+  "Assist/Turnover Ratio": 0.3,
   Steals: 5,
   "Blocked Shots": 5,
   Turnovers: 10,
+  "Double-Doubles": 2,
 };
 type StatKey = (typeof STAT_KEYS)[number];
-type CountCategory = "threePm" | "pts" | "reb" | "ast" | "stl" | "blk" | "turnovers";
+type CountCategory = "threePm" | "pts" | "reb" | "oreb" | "ast" | "stl" | "blk" | "turnovers" | "doubleDoubles";
+type EvaluationProfile = "standard-9cat" | "extended-oreb-at-dd";
 type Stats = Record<StatKey, number>;
 type CandidateName = "baseline" | "blended" | "probability" | "ensemble";
 type WindowWeights = { season: number; lastmonth: number; lastweek: number };
@@ -31,6 +35,7 @@ interface ProbabilityRankConfig {
   id: string;
   weeklyDeviations: Record<string, number>;
   weekdayScaling: boolean;
+  profile: EvaluationProfile;
 }
 
 export interface ProviderRow {
@@ -51,10 +56,12 @@ export interface ProviderRow {
   ThreePointersAttempted?: number;
   Points?: number;
   Rebounds?: number;
+  OffensiveRebounds?: number;
   Assists?: number;
   Steals?: number;
   BlockedShots?: number;
   Turnovers?: number;
+  DoubleDoubles?: number;
   SeasonType?: number;
 }
 
@@ -114,7 +121,7 @@ interface ScenarioResult {
 
 export const emptyStats = (): Stats => ({
   fgm: 0, fga: 0, ftm: 0, fta: 0, threePm: 0, threePa: 0,
-  pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, turnovers: 0,
+  pts: 0, reb: 0, oreb: 0, ast: 0, stl: 0, blk: 0, turnovers: 0, doubleDoubles: 0,
 });
 
 const add = (left: Stats, right: Stats) => Object.fromEntries(
@@ -156,10 +163,12 @@ export const normalize = (row: ProviderRow): GameRow | undefined => {
       threePa: number(row.ThreePointersAttempted),
       pts: number(row.Points),
       reb: number(row.Rebounds),
+      oreb: number(row.OffensiveRebounds),
       ast: number(row.Assists),
       stl: number(row.Steals),
       blk: number(row.BlockedShots),
       turnovers: number(row.Turnovers),
+      doubleDoubles: number(row.DoubleDoubles),
     },
   };
 };
@@ -322,19 +331,26 @@ const categoryScore = (stats: Stats) => ({
   threePm: stats.threePm,
   pts: stats.pts,
   reb: stats.reb,
+  oreb: stats.oreb,
   ast: stats.ast,
+  assistTurnoverRatio: stats.turnovers > 0 ? stats.ast / stats.turnovers : stats.ast,
   stl: stats.stl,
   blk: stats.blk,
   turnovers: stats.turnovers,
+  doubleDoubles: stats.doubleDoubles,
 });
 
-const categoryWins = (team: Stats, opponent: Stats) => {
+const categoriesForProfile = (profile: EvaluationProfile) => profile === "extended-oreb-at-dd"
+  ? ["fgPct", "ftPct", "threePm", "pts", "reb", "oreb", "ast", "assistTurnoverRatio", "stl", "blk", "turnovers", "doubleDoubles"] as const
+  : ["fgPct", "ftPct", "threePm", "pts", "reb", "ast", "stl", "blk", "turnovers"] as const;
+
+const categoryWins = (team: Stats, opponent: Stats, profile: EvaluationProfile) => {
   const left = categoryScore(team);
   const right = categoryScore(opponent);
-  const categories = ["fgPct", "ftPct", "threePm", "pts", "reb", "ast", "stl", "blk"] as const;
-  let wins = categories.reduce((sum, key) => sum + (left[key] > right[key] ? 1 : left[key] === right[key] ? 0.5 : 0), 0);
-  wins += left.turnovers < right.turnovers ? 1 : left.turnovers === right.turnovers ? 0.5 : 0;
-  return wins;
+  return categoriesForProfile(profile).reduce((sum, key) => {
+    if (key === "turnovers") return sum + (left[key] < right[key] ? 1 : left[key] === right[key] ? 0.5 : 0);
+    return sum + (left[key] > right[key] ? 1 : left[key] === right[key] ? 0.5 : 0);
+  }, 0);
 };
 
 const erf = (value: number) => {
@@ -374,6 +390,12 @@ const zScoreMetric = (key: CategoryScoreKey, projection: Stats, team: Stats, opp
     const target = current.ftPct <= other.ftPct ? other.ftPct : current.ftPct;
     return projection.ftm - target * projection.fta;
   }
+  if (key === "assistTurnoverRatio") {
+    const before = team.turnovers > 0 ? team.ast / team.turnovers : team.ast;
+    const afterTurnovers = team.turnovers + projection.turnovers;
+    const after = afterTurnovers > 0 ? (team.ast + projection.ast) / afterTurnovers : team.ast + projection.ast;
+    return after - before;
+  }
   const statKey = key as CountCategory;
   const value = projection[statKey];
   return key === "turnovers" ? -value : value;
@@ -384,8 +406,9 @@ export const zScoreRank = (
   model: CandidateName,
   team: Stats,
   opponent: Stats,
+  profile: EvaluationProfile = "standard-9cat",
 ) => {
-  const categories: CategoryScoreKey[] = ["fgPct", "ftPct", "threePm", "pts", "reb", "ast", "stl", "blk", "turnovers"];
+  const categories: CategoryScoreKey[] = [...categoriesForProfile(profile)];
   const descriptors = categories.map((key) => {
     const values = candidates.map((row) => zScoreMetric(key, row[model], team, opponent));
     const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
@@ -422,10 +445,13 @@ const probabilityRank = (
     threePm: "3-point Shots Made",
     pts: "Points Scored",
     reb: "Total Rebounds",
+    oreb: "Offensive Rebounds",
     ast: "Assists",
+    assistTurnoverRatio: "Assist/Turnover Ratio",
     stl: "Steals",
     blk: "Blocked Shots",
     turnovers: "Turnovers",
+    doubleDoubles: "Double-Doubles",
   } as const;
   const day = (new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7;
   const remainingFraction = Math.max(1 / 7, (7 - day) / 7);
@@ -438,7 +464,7 @@ const probabilityRank = (
       )
       : config.weeklyDeviations[category] ?? 1,
   ])) as Record<keyof typeof categoryNames, number>;
-  return (Object.keys(deviations) as Array<keyof typeof deviations>).reduce((sum, key) => {
+  return (categoriesForProfile(config.profile) as readonly (keyof typeof deviations)[]).reduce((sum, key) => {
     const direction = key === "turnovers" ? -1 : 1;
     const baseline = normalCdf(direction * (before[key] - other[key]) / deviations[key]);
     const projected = normalCdf(direction * (after[key] - other[key]) / deviations[key]);
@@ -525,12 +551,12 @@ const simulate = (
         const finalOpponent = aggregate(activeRows(rows, assignments, team + 1, week, end));
         const displaced = weakestActive(rows, assignments, team, date);
         const displacedForecast = (forecastByDate.get(date) ?? []).find((row) => row.playerId === displaced?.playerId);
-        const noMove = categoryWins(finalTeam, finalOpponent);
+        const noMove = categoryWins(finalTeam, finalOpponent, rankConfig.profile);
         const selected = Object.fromEntries(([
           "baseline", "blended", "probability", "ensemble",
         ] as CandidateName[]).map((model) => {
           if (model === "baseline" || model === "blended") {
-            return [model, zScoreRank(candidates, model, currentTeam, currentOpponent)];
+            return [model, zScoreRank(candidates, model, currentTeam, currentOpponent, rankConfig.profile)];
           }
           const displacedProjection = displacedForecast?.[model] ?? emptyStats();
           const ranked = [...candidates].sort((left, right) => (
@@ -541,10 +567,10 @@ const simulate = (
         })) as Record<CandidateName, ForecastRow>;
         results.push({
           cluster: `${teamCount}:${week}`,
-          baseline: categoryWins(add(finalTeam, subtract(selected.baseline.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
-          blended: categoryWins(add(finalTeam, subtract(selected.blended.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
-          probability: categoryWins(add(finalTeam, subtract(selected.probability.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
-          ensemble: categoryWins(add(finalTeam, subtract(selected.ensemble.stats, displaced?.stats ?? emptyStats())), finalOpponent) - noMove,
+          baseline: categoryWins(add(finalTeam, subtract(selected.baseline.stats, displaced?.stats ?? emptyStats())), finalOpponent, rankConfig.profile) - noMove,
+          blended: categoryWins(add(finalTeam, subtract(selected.blended.stats, displaced?.stats ?? emptyStats())), finalOpponent, rankConfig.profile) - noMove,
+          probability: categoryWins(add(finalTeam, subtract(selected.probability.stats, displaced?.stats ?? emptyStats())), finalOpponent, rankConfig.profile) - noMove,
+          ensemble: categoryWins(add(finalTeam, subtract(selected.ensemble.stats, displaced?.stats ?? emptyStats())), finalOpponent, rankConfig.profile) - noMove,
         });
       }
     }
@@ -572,6 +598,7 @@ const calibrateProductionParameters = (validation: ForecastRow[], training: Game
   const countMappings: Array<[string, StatKey]> = [
     ["Points Scored", "pts"],
     ["Total Rebounds", "reb"],
+    ["Offensive Rebounds", "oreb"],
     ["Assists", "ast"],
     ["Steals", "stl"],
     ["Blocked Shots", "blk"],
@@ -579,6 +606,7 @@ const calibrateProductionParameters = (validation: ForecastRow[], training: Game
     ["3-point Shots Made", "threePm"],
     ["3-point Shots Attempted", "threePa"],
     ["Turnovers", "turnovers"],
+    ["Double-Doubles", "doubleDoubles"],
     ["Field Goals Made", "fgm"],
     ["Field Goals Attempted", "fga"],
     ["Free Throws Made", "ftm"],
@@ -602,6 +630,14 @@ const calibrateProductionParameters = (validation: ForecastRow[], training: Game
     });
     const deviation = standardDeviation(errors) / weeklyScale;
     if (Number.isFinite(deviation) && deviation > 0) weeklyResidualStandardDeviation[category] = deviation;
+  }
+  const assistTurnoverErrors = validation.flatMap((row) => {
+    if (row.stats.turnovers <= 0 || row.probability.turnovers <= 0) return [];
+    return [row.stats.ast / row.stats.turnovers - row.probability.ast / row.probability.turnovers];
+  });
+  const assistTurnoverDeviation = standardDeviation(assistTurnoverErrors) / weeklyScale;
+  if (Number.isFinite(assistTurnoverDeviation) && assistTurnoverDeviation > 0) {
+    weeklyResidualStandardDeviation["Assist/Turnover Ratio"] = assistTurnoverDeviation;
   }
 
   const trainingRates = mean(training);
@@ -703,18 +739,21 @@ const fetchRows = async (season: string, apiKey: string, kind: "actual" | "proje
 };
 
 const main = async () => {
-  const season = process.argv.find((argument) => argument.startsWith("--season="))?.split("=")[1] ?? "2026REG";
+  const seasonsArgument = process.argv.find((argument) => argument.startsWith("--seasons="))?.split("=")[1];
+  const singleSeason = process.argv.find((argument) => argument.startsWith("--season="))?.split("=")[1];
+  const seasons = (seasonsArgument?.split(",") ?? [singleSeason ?? "2026REG"]).map((item) => item.trim()).filter(Boolean);
+  const season = seasons.join(",");
   const apiKey = process.env.SPORTSDATAIO_API_KEY ?? "";
   const cacheDir = path.resolve(".cache/recommender");
-  const hasCachedInputs = existsSync(path.join(cacheDir, `${season}.json`))
-    && existsSync(path.join(cacheDir, `${season}.projections.json`));
+  const hasCachedInputs = seasons.every((item) => existsSync(path.join(cacheDir, `${item}.json`))
+    && existsSync(path.join(cacheDir, `${item}.projections.json`)));
   if (!apiKey && !hasCachedInputs) {
     throw new Error("SPORTSDATAIO_API_KEY is required when historical backtest inputs are not cached.");
   }
-  const rows = (await fetchRows(season, apiKey)).map(normalize).filter((row): row is GameRow => Boolean(row));
-  const vendorRows = (await fetchRows(season, apiKey, "projection"))
-    .map(normalize)
-    .filter((row): row is GameRow => Boolean(row));
+  const rows = (await Promise.all(seasons.map((item) => fetchRows(item, apiKey))))
+    .flat().map(normalize).filter((row): row is GameRow => Boolean(row));
+  const vendorRows = (await Promise.all(seasons.map((item) => fetchRows(item, apiKey, "projection"))))
+    .flat().map(normalize).filter((row): row is GameRow => Boolean(row));
   const dates = [...new Set(rows.map((row) => row.date))].sort();
   if (dates.length < 60) throw new Error(`Only ${dates.length} game dates were returned; a complete regular season is required.`);
   const trainingEnd = dates[Math.floor(dates.length * 0.6)];
@@ -741,14 +780,16 @@ const main = async () => {
       id: "calibrated-dynamic",
       weeklyDeviations: calibratedParameters.weeklyResidualStandardDeviation,
       weekdayScaling: true,
+      profile: "standard-9cat",
     },
     {
       id: "calibrated-static",
       weeklyDeviations: calibratedParameters.weeklyResidualStandardDeviation,
       weekdayScaling: false,
+      profile: "standard-9cat",
     },
-    { id: "reference-dynamic", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: true },
-    { id: "reference-static", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: false },
+    { id: "reference-dynamic", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: true, profile: "standard-9cat" },
+    { id: "reference-static", weeklyDeviations: REFERENCE_WEEKLY_DEVIATIONS, weekdayScaling: false, profile: "standard-9cat" },
   ];
   const validationRankCalibration = rankConfigs.map((config) => {
     const results = simulate(rows, forecasts, trainingEnd, validationStart, config, validationEnd);
@@ -767,6 +808,11 @@ const main = async () => {
     heldoutStart,
     selectedRankCalibration.config,
   );
+  const extendedScenarios = simulate(rows, forecasts, trainingEnd, heldoutStart, {
+    ...selectedRankCalibration.config,
+    id: `${selectedRankCalibration.config.id}-extended`,
+    profile: "extended-oreb-at-dd",
+  });
   if (!heldout.length || !scenarios.length) throw new Error("The held-out partition produced no evaluable forecasts or matchup scenarios.");
 
   const models: CandidateName[] = ["baseline", "blended", "probability", "ensemble"];
@@ -809,6 +855,17 @@ const main = async () => {
     validationForecasts: validationForecasts.length,
     heldoutForecasts: heldout.length,
     scenarios: scenarios.length,
+    evaluationProfiles: {
+      "standard-9cat": { scenarios: scenarios.length, categories: ["FG%", "FT%", "3PM", "PTS", "REB", "AST", "STL", "BLK", "TO"] },
+      "extended-oreb-at-dd": {
+        scenarios: extendedScenarios.length,
+        categories: ["FG%", "FT%", "3PM", "PTS", "REB", "OREB", "AST", "A/T", "STL", "BLK", "TO", "DD"],
+        realizedCategoryGain: Object.fromEntries(models.map((model) => [
+          model,
+          extendedScenarios.reduce((sum, result) => sum + result[model], 0) / Math.max(1, extendedScenarios.length),
+        ])),
+      },
+    },
     projectionError,
     realizedCategoryGain,
     confidenceIntervalsVersusBaseline,
@@ -834,7 +891,14 @@ const main = async () => {
   );
   const artifact = {
     ...baseArtifact,
-    modelVersion: "1.1.0",
+    schemaVersion: 2,
+    modelVersion: "2.0.0",
+    validationLabel: `${season} single-season validation`,
+    validationCoverage: {
+      validated: ["FG%", "FT%", "3PM", "PTS", "REB", "AST", "STL", "BLK", "TO"],
+      modeledUnvalidated: ["OREB", "A/T", "DD", "3P%", "DREB"],
+      unsupported: "All other custom categories",
+    },
     generatedAt: report.generatedAt,
     status: "completed",
     selectedModel,

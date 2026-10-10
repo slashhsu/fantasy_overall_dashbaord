@@ -41,7 +41,10 @@ describe("NBA schedule", () => {
 
     expect(result).toEqual({
       teamsPlaying: ["CLE", "NYK"],
-      schedule: { status: "available", source: "balldontlie", fallbackUsed: false },
+      schedule: {
+        status: "available", source: "balldontlie", fallbackUsed: false,
+        games: [expect.objectContaining({ homeTeam: "NYK", awayTeam: "CLE", status: "scheduled" })],
+      },
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(String(fetcher.mock.calls[0][0])).toContain("api.balldontlie.io/v1/games");
@@ -59,18 +62,24 @@ describe("NBA schedule", () => {
 
     expect(result).toEqual({
       teamsPlaying: ["DAL", "GSW"],
-      schedule: { status: "available", source: "espn", fallbackUsed: true },
+      schedule: {
+        status: "available", source: "espn", fallbackUsed: true,
+        games: [expect.objectContaining({ homeTeam: "GSW", awayTeam: "DAL" })],
+      },
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(String(fetcher.mock.calls[1][0])).toContain("site.api.espn.com");
   });
 
-  it("returns an available empty slate when the provider confirms no games", async () => {
+  it("marks an empty slate unverified when only one provider confirms no games", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ events: [] }));
     const result = await fetchNbaSchedule("2025-07-15", { apiKey: "", fetcher });
     expect(result).toEqual({
       teamsPlaying: [],
-      schedule: { status: "available", source: "espn", fallbackUsed: true },
+      schedule: {
+        status: "unverified", source: "espn", fallbackUsed: true, games: [],
+        message: "One schedule provider returned an empty slate; player game availability is unverified.",
+      },
     });
   });
 

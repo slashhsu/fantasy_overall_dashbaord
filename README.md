@@ -7,14 +7,14 @@ A private, Vercel-ready Yahoo Fantasy Basketball workspace. It discovers the lat
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
 - Weekly category results with close-loss and close-win context.
-- Daily recommendations from the held-out validated Matchup Swing model.
+- Format-aware recommendations for H2H Each Category, H2H Most Categories, Points, and Rotisserie leagues.
 - Evaluation-ready blended and empirical-Bayes probability candidates using season, last 30 days, and last 7 days.
 - Dated Yahoo roster optimization that accounts for active-slot eligibility and displaced starters.
 - Confidence, category-level reasons, and percentage-volume effects for every recommendation.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
-- Brief server cache plus an explicit refresh control.
+- Bounded TTL/LRU cache with single-flight requests, one-hour stale-if-error fallback, and an explicit refresh control.
 - Demo mode for local UI testing without Yahoo credentials.
-- `/draft` live draft board with Yahoo ADP, snake-turn timing, positional scarcity, and dynamic roster fit.
+- `/draft` supports Snake, Linear, Salary Cap/Auction, and Offline draft boards with Yahoo ADP, positional scarcity, dynamic roster fit, and auction budgets.
 - Target, balanced, and punt controls for every enabled league category.
 - Yahoo draft-result sync plus a manual mock-draft mode with undo and locally persisted picks.
 
@@ -26,10 +26,12 @@ For every available player, the implementation:
 
 1. Converts the latest usable Yahoo season totals into per-game category projections and uses attempt-volume impact for FG%, FT%, and 3PT%.
 2. Normalizes values against the league-sized draftable pool and simulates the marginal category-win or roto-value change after adding the player.
-3. Reassigns roster positions, measures scarcity against players likely to remain at the following snake turn, and estimates return probability from Yahoo ADP.
+3. Reassigns roster positions, measures scarcity against players likely to remain at the following turn, and displays an uncalibrated `Estimated Return` market estimate from Yahoo ADP.
 4. Re-ranks immediately after every Yahoo-synced or manual pick. Weak categories can be targeted or explicitly punted; strongly unrecoverable categories are down-weighted only after enough roster evidence exists.
 
 During the offseason, the service first looks for usable current-game statistics and then falls back to the previous accessible Yahoo NBA season. Players without category history, including some rookies, remain visible through Yahoo ADP but are labeled `Market`; category production is never invented from missing totals. Yahoo's `draft_analysis` and `draftresults` resources provide market and live-board context, while all league credentials remain server-side.
+
+Salary Cap mode defaults to `$200` per team. Recommendations allocate discretionary dollars above replacement level, adjust for observed league inflation, reserve `$1` for every remaining roster spot, and show Yahoo AAV, suggested price, value, and maximum legal bid.
 
 ## Local Setup
 
@@ -89,7 +91,7 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `APP_PASSWORD` | Yes | Private dashboard password. |
-| `SESSION_SECRET` | Recommended | Cookie signing key; falls back to `APP_PASSWORD`. |
+| `SESSION_SECRET` | Production required | Independent cookie signing key of at least 32 characters. Only local/demo mode may fall back to `APP_PASSWORD`. |
 | `YAHOO_CLIENT_ID` | Live mode | Yahoo OAuth application ID. |
 | `YAHOO_CLIENT_SECRET` | Live mode | Yahoo OAuth application secret. |
 | `YAHOO_REFRESH_TOKEN` | Live mode | Long-lived Yahoo refresh token. |
@@ -99,13 +101,17 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | `FREE_AGENT_LIMIT` | No | Maximum paginated available players; default `300`. |
 | `YAHOO_DEMO_MODE` | No | Use deterministic preview data; default `false`. |
 
+Login throttling is process-local: five failed attempts in 15 minutes lock that client for 15 minutes, with exponential failure delays up to two seconds. Vercel instances do not share this state because the app intentionally has no Redis/KV dependency.
+
 ## Verification
 
 ```bash
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:e2e
 pnpm build
+pnpm audit --prod --audit-level=high
 ```
 
 ## Historical Recommendation Backtest
@@ -116,10 +122,12 @@ The production app does not call SportsDataIO. Historical model evaluation is an
 cp .env.backtest.example .env.backtest.local
 set -a; source .env.backtest.local; set +a
 pnpm backtest:recommender -- --season=2026REG
+# Future multi-season evaluation:
+pnpm backtest:recommender -- --seasons=2025REG,2026REG
 ```
 
 Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command discovers regular-season dates from the Discovery Lab schedule feed, checkpoints actual and historical pregame projection downloads, and can resume after an API interruption. Pregame projections define the evaluable player pool, while unexpected DNPs remain zero-valued outcomes instead of disappearing from the sample. The production-parity baseline, blended projections, and Matchup Swing probability model are compared using chronological training, validation, and held-out scenarios. The command writes aggregate evidence to `reports/recommender-backtest.json` and updates `model-artifacts/recommender.json`.
 
-The checked-in `2026REG` artifact promotes Matchup Swing. Its held-out clustered-bootstrap improvement over the production-parity baseline has a 95% interval of `0.01699` to `0.08186`, and its projection NMAE is `0.64635` versus the baseline's `0.65102`. Both promotion checks therefore pass. Probability residual calibration is selected on validation scenarios only; the selected `reference-static` calibration is then applied unchanged to held-out data and production.
+The checked-in v2 `2026REG single-season validation` artifact promotes Matchup Swing. Its held-out clustered-bootstrap improvement over the production-parity baseline has a 95% interval of `0.01699` to `0.08186`, and its projection NMAE is `0.71172` versus the baseline's `0.71479`. Both promotion checks therefore pass. The report contains 435 standard 9-category scenarios plus an extended OREB, derived A/T, and DD profile. Only the standard categories are labeled validated; OREB/A/T/DD remain modeled-unvalidated until multi-season evidence is available.
 
 The app is recommendation-only. It does not add or drop Yahoo players.

@@ -2,12 +2,15 @@ import type {
   FreeAgent,
   LeagueCategory,
   LeagueScoringFormat,
+  LeagueTeamStats,
   MatchupCategoryRow,
   MatchupTeam,
   Recommendation,
   RecommendationCategoryImpact,
   RosterPlayer,
   RosterPosition,
+  ScheduleGame,
+  ValidationCoverage,
 } from "@/lib/types";
 import { MODEL_PARAMETERS, SELECTED_RECOMMENDER } from "@/lib/recommender-model";
 import { normalizeTeamAbbreviation } from "@/lib/stats";
@@ -101,10 +104,9 @@ const resultFor = (category: string, teamValue: number, opponentValue: number) =
   const lower = LOWER_IS_BETTER.has(category);
   const winning = lower ? teamValue < opponentValue : teamValue > opponentValue;
   const side = winning ? ("Win" as const) : ("Lose" as const);
-  const base = Math.abs(teamValue) > 1e-9 ? Math.abs(teamValue) : 1;
-  const differenceRatio = Math.abs(teamValue - opponentValue) / base;
-  const thresholds = category in PERCENTAGE_CATEGORIES ? [0.05, 0.1, 0.15] : [0.1, 0.2, 0.3];
-  const level = differenceRatio < thresholds[0] ? 1 : differenceRatio < thresholds[1] ? 2 : differenceRatio < thresholds[2] ? 3 : 4;
+  const weeklyDeviation = MODEL_PARAMETERS.weeklyResidualStandardDeviation[category] ?? 1;
+  const normalizedGap = Math.abs(teamValue - opponentValue) / Math.max(weeklyDeviation, 1e-6);
+  const level = normalizedGap < 0.5 ? 1 : normalizedGap < 1 ? 2 : normalizedGap < 2 ? 3 : 4;
   return { result: `${side} ${level}`, side, level };
 };
 
@@ -152,6 +154,11 @@ export interface RecommendationOptions {
   rosterPositions?: RosterPosition[];
   lineupAvailable?: boolean;
   scoringFormat?: LeagueScoringFormat;
+  categories?: LeagueCategory[];
+  standingsTeams?: LeagueTeamStats[];
+  selectedTeamKey?: string;
+  scheduleGames?: ScheduleGame[];
+  now?: Date;
 }
 
 const PROJECTION_STATS: Record<string, string[]> = {
@@ -215,7 +222,7 @@ const rawBlendedRate = (player: FreeAgent, key: string, candidates: string[]) =>
   if (totalWeight > 0) return weightedRate / totalWeight;
   const games = firstStatValue(player.stats, PROJECTION_STATS.gp);
   const value = firstStatValue(player.stats, candidates);
-  return games > 0 ? value / games : value;
+  return games > 0 ? value / games : 0;
 };
 
 const rawBlendedRatio = (player: FreeAgent, key: string, candidates: string[]) => {
@@ -249,11 +256,21 @@ const averageProjectionRates = (players: FreeAgent[]) => Object.fromEntries(
   Object.entries(PROJECTION_STATS)
     .filter(([key]) => key !== "gp")
     .map(([key, candidates]) => {
-      const values = players.map((player) => (
+      const values = players
+        .filter((player) => Math.max(...Object.values(windowsFor(player)).map(gamesIn), 0) > 0)
+        .map((player) => (
         key.endsWith("Pct")
           ? rawBlendedRatio(player, key, candidates)
           : rawBlendedRate(player, key, candidates)
-      )).filter((value) => Number.isFinite(value) && value >= 0);
+        )).filter((value) => {
+          if (!Number.isFinite(value) || value < 0) return false;
+          const ceilings: Record<string, number> = {
+            pts: 70, reb: 35, ast: 25, stl: 10, blk: 10, threePm: 15,
+            turnovers: 15, fgm: 30, fga: 50, ftm: 30, fta: 40, threePa: 30,
+            fgPct: 1, ftPct: 1, threePct: 1,
+          };
+          return value <= (ceilings[key] ?? 100);
+        });
       return [key, values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0];
     }),
 ) as Record<string, number>;
@@ -289,6 +306,13 @@ const addPercentageFallback = (rates: Record<string, number>) => {
 const projectPlayer = (player: FreeAgent, priors: ProjectionPriors): PlayerProjection => {
   const windows = windowsFor(player);
   const sampleSize = Math.max(...Object.values(windows).map(gamesIn), 0);
+  if (sampleSize <= 0) {
+    return {
+      player,
+      rates: Object.fromEntries(Object.keys(PROJECTION_STATS).filter((key) => key !== "gp").map((key) => [key, 0])),
+      sampleSize: 0,
+    };
+  }
   const reliability = sampleSize / (sampleSize + MODEL_PARAMETERS.priorGames);
   const prior = priors.byPosition.get(primaryPosition(player)) ?? priors.overall;
   const rates: Record<string, number> = {};
@@ -330,7 +354,62 @@ const projectPlayer = (player: FreeAgent, priors: ProjectionPriors): PlayerProje
 
 const statusCode = (player: FreeAgent) => (player.status ?? "").trim().toUpperCase();
 const confirmedInactive = (player: FreeAgent) => new Set(["O", "OUT", "INJ", "IL", "IL+", "NA", "SUSP"]).has(statusCode(player));
-const questionable = (player: FreeAgent) => new Set(["DTD", "GTD", "Q", "D"]).has(statusCode(player));
+const injuryMultiplier = (player: FreeAgent) => {
+  const status = statusCode(player);
+  if (status === "DTD") return 0.75;
+  if (status === "Q" || status === "GTD") return 0.5;
+  if (status === "D" || status === "DOUBTFUL") return 0.25;
+  return 1;
+};
+
+const questionable = (player: FreeAgent) => injuryMultiplier(player) < 1;
+
+export const categoryValidationCoverage = (category: string): ValidationCoverage => {
+  if (new Set([
+    "Field Goal Percentage", "Free Throw Percentage", "3-point Shots Made", "Points Scored",
+    "Total Rebounds", "Assists", "Steals", "Blocked Shots", "Blocks", "Turnovers",
+  ]).has(category)) return "validated";
+  if (new Set([
+    "3-point Percentage", "Offensive Rebounds", "Defensive Rebounds", "Assist/Turnover Ratio", "Double-Doubles",
+  ]).has(category)) return "modeled-unvalidated";
+  return "unsupported";
+};
+
+const confidenceDetails = (projection: PlayerProjection) => {
+  const source = projection.player.projectionSource ?? (projection.sampleSize > 0 ? "current-season" : "market-only");
+  if (source === "market-only" || projection.sampleSize <= 0) {
+    return { score: 15, label: "Market" as const, reasons: ["No valid per-game sample", "Yahoo market data only"] };
+  }
+  let score = Math.min(85, 30 + projection.sampleSize * 2.5);
+  const reasons = [`${projection.sampleSize} valid games`];
+  if (source === "previous-season") {
+    score = Math.min(score, 69);
+    reasons.push("Previous-season projection is capped at Medium");
+  } else {
+    score += 8;
+    reasons.push("Current-season sample");
+  }
+  const risk = injuryMultiplier(projection.player);
+  if (risk < 1) {
+    score -= (1 - risk) * 35;
+    reasons.push(`Health status ${projection.player.status ?? "uncertain"}`);
+    if (risk <= 0.5) score = Math.min(score, 39);
+    else score = Math.min(score, 69);
+  }
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return {
+    score,
+    label: score >= 75 ? "High" as const : score >= 45 ? "Medium" as const : "Low" as const,
+    reasons,
+  };
+};
+
+const aggregateCoverage = (categories: Iterable<string>): ValidationCoverage => {
+  const coverage = [...categories].map(categoryValidationCoverage);
+  if (!coverage.length || coverage.every((item) => item === "unsupported")) return "unsupported";
+  if (coverage.some((item) => item !== "validated")) return "modeled-unvalidated";
+  return "validated";
+};
 
 const erf = (value: number) => {
   const sign = value < 0 ? -1 : 1;
@@ -390,8 +469,7 @@ const categoryContribution = (category: string, projection: PlayerProjection) =>
     };
   }
   if (category === "Assist/Turnover Ratio") {
-    const turnovers = projection.rates.turnovers || 0;
-    return { value: turnovers > 0 ? projection.rates.ast / turnovers : projection.rates.ast };
+    return { assists: projection.rates.ast ?? 0, turnovers: projection.rates.turnovers ?? 0 };
   }
   const candidates = COUNT_STATS[category];
   if (!candidates) return undefined;
@@ -438,6 +516,24 @@ const probabilityScore = (
       const nextAttempts = Math.max(1, attempts + (contribution.attempted ?? 0));
       const nextMade = Math.max(0, made + (contribution.made ?? 0));
       projectedGap = nextMade / nextAttempts - need.opponentValue;
+    } else if ("assists" in contribution) {
+      const assistsNeed = needs.find((item) => item.category === "Assists");
+      const turnoversNeed = needs.find((item) => item.category === "Turnovers");
+      const teamAssists = assistsNeed?.teamValue;
+      const opponentAssists = assistsNeed?.opponentValue;
+      const teamTurnovers = turnoversNeed?.teamValue
+        ?? (teamAssists !== null && teamAssists !== undefined && need.teamValue > 0 ? teamAssists / need.teamValue : null);
+      const opponentTurnovers = turnoversNeed?.opponentValue
+        ?? (opponentAssists !== null && opponentAssists !== undefined && need.opponentValue > 0 ? opponentAssists / need.opponentValue : null);
+      if (teamAssists === null || teamAssists === undefined || teamTurnovers === null
+        || opponentAssists === null || opponentAssists === undefined || opponentTurnovers === null
+        || teamTurnovers <= 0 || opponentTurnovers <= 0) {
+        continue;
+      }
+      baselineGap = teamAssists / teamTurnovers - opponentAssists / opponentTurnovers;
+      const nextTurnovers = teamTurnovers + (contribution.turnovers ?? 0);
+      if (nextTurnovers <= 0) continue;
+      projectedGap = (teamAssists + (contribution.assists ?? 0)) / nextTurnovers - opponentAssists / opponentTurnovers;
     } else {
       projectedGap += contribution.value;
     }
@@ -454,6 +550,7 @@ const probabilityScore = (
       baselineProbability,
       projectedProbability,
       delta: projectedProbability - baselineProbability,
+      coverage: categoryValidationCoverage(need.category),
     });
   }
 
@@ -490,6 +587,28 @@ export const canUseSlot = (player: FreeAgent, slot: string) => {
 const activeSlots = (positions: RosterPosition[]) => positions
   .filter(({ position }) => !RESERVED_POSITIONS.has(position.toUpperCase()))
   .flatMap(({ position, count }) => Array.from({ length: count }, () => position));
+
+const gameIsLocked = (player: FreeAgent, options: RecommendationOptions) => {
+  if (!options.strictGameDay || !options.scheduleGames) return false;
+  const team = normalizeTeamAbbreviation(player.team);
+  const game = options.scheduleGames.find((item) => item.homeTeam === team || item.awayTeam === team);
+  if (!game) return false;
+  if (game.status === "in-progress" || game.status === "final") return true;
+  if (!game.startTime) return false;
+  const start = Date.parse(game.startTime);
+  return Number.isFinite(start) && start <= (options.now ?? new Date()).getTime();
+};
+
+const availableLineupSlots = (options: RecommendationOptions) => {
+  const slots = activeSlots(options.rosterPositions ?? []);
+  for (const player of options.roster ?? []) {
+    if (!player.selectedPosition || RESERVED_POSITIONS.has(player.selectedPosition.toUpperCase()) || !gameIsLocked(player, options)) continue;
+    const exact = slots.findIndex((slot) => slot.toUpperCase() === player.selectedPosition?.toUpperCase());
+    const compatible = exact >= 0 ? exact : slots.findIndex((slot) => canUseSlot(player, slot));
+    if (compatible >= 0) slots.splice(compatible, 1);
+  }
+  return slots;
+};
 
 interface AssignmentPlayer {
   projection: PlayerProjection;
@@ -542,7 +661,7 @@ const projectZScorePlayer = (player: FreeAgent, mode: ZScoreMode): PlayerProject
       continue;
     }
     const value = firstStatValue(preferredStats, candidates);
-    rates[key] = key.endsWith("Pct") ? value : sampleSize > 0 ? value / sampleSize : value;
+    rates[key] = sampleSize > 0 ? (key.endsWith("Pct") ? value : value / sampleSize) : 0;
   }
   addPercentageFallback(rates);
   return {
@@ -611,10 +730,6 @@ const zScoreUtility = (projection: PlayerProjection, descriptors: ZScoreDescript
   return { score, contributions };
 };
 
-const confidenceFor = (projection: PlayerProjection) => questionable(projection.player) || projection.sampleSize < 5
-  ? "Low" as const
-  : projection.sampleSize >= 20 ? "High" as const : "Medium" as const;
-
 const zScoreRecommendations = (
   freeAgents: FreeAgent[],
   needs: MatchupCategoryRow[],
@@ -625,6 +740,7 @@ const zScoreRecommendations = (
   const scheduleKnown = options.strictGameDay === true;
   const pool = freeAgents.filter((player) => (
     !confirmedInactive(player)
+    && !gameIsLocked(player, options)
     && (!scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(player.team)))
   ));
   const projections = new Map(
@@ -632,9 +748,10 @@ const zScoreRecommendations = (
   );
   const poolProjections = pool.map((player) => projections.get(player.playerKey) as PlayerProjection);
   const descriptors = zScoreDescriptors(needs, poolProjections);
-  const slots = activeSlots(options.rosterPositions ?? []);
+  const slots = availableLineupSlots(options);
   const rosterAssignments: AssignmentPlayer[] = (options.roster ?? [])
     .filter((player) => !confirmedInactive(player))
+    .filter((player) => !gameIsLocked(player, options))
     .map((player) => projections.get(player.playerKey))
     .filter((projection): projection is PlayerProjection => Boolean(projection))
     .filter((projection) => !scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(projection.player.team)))
@@ -695,13 +812,23 @@ const zScoreRecommendations = (
       period: player.period,
       projectionBasis: mode === "blended" ? "blended" : "single-window",
       gamesPlayed: projection.sampleSize,
-      score: round(score, 4),
+      score: round(score * injuryMultiplier(player), 4),
       scoreType: mode === "blended" ? "blended-z-score" : "legacy-z-score",
-      confidence: confidenceFor(projection),
+      rawScore: round(score, 4),
+      riskAdjustedScore: round(score * injuryMultiplier(player), 4),
+      confidence: confidenceDetails(projection).label,
+      confidenceScore: confidenceDetails(projection).score,
+      confidenceReasons: confidenceDetails(projection).reasons,
+      projectionSource: player.projectionSource ?? (projection.sampleSize > 0 ? "current-season" : "market-only"),
+      validationCoverage: aggregateCoverage(contributions.keys()),
+      lockVerified: scheduleKnown && options.scheduleGames !== undefined,
       lineupImpact,
       categoryImpacts: [],
       reason: sortedContributions.filter(([, value]) => value > 0.35).slice(0, 3).map(([category]) => category),
-      watchouts: sortedContributions.filter(([, value]) => value < -0.75).sort((left, right) => left[1] - right[1]).slice(0, 2).map(([category]) => category),
+      watchouts: [
+        ...sortedContributions.filter(([, value]) => value < -0.75).sort((left, right) => left[1] - right[1]).slice(0, 2).map(([category]) => category),
+        ...(questionable(player) ? [`${player.status} health adjustment`] : []),
+      ],
       projections: {
         pts: round(projection.rates.pts),
         reb: round(projection.rates.reb),
@@ -745,6 +872,7 @@ export const recommendFreeAgentsProbability = (
   );
   const pool = freeAgents.filter((player) => {
     if (confirmedInactive(player)) return false;
+    if (gameIsLocked(player, options)) return false;
     if (!options.strictGameDay) return true;
     return playingTeams.has(normalizeTeamAbbreviation(player.team));
   });
@@ -755,11 +883,12 @@ export const recommendFreeAgentsProbability = (
   );
   const targetDate = options.targetDate ?? new Date().toISOString().slice(0, 10);
   const scoringFormat = options.scoringFormat ?? "each-category";
-  const slots = activeSlots(options.rosterPositions ?? []);
+  const slots = availableLineupSlots(options);
   const scheduleKnown = options.strictGameDay === true;
 
   const rosterAssignments: AssignmentPlayer[] = (options.roster ?? [])
     .filter((player) => !confirmedInactive(player))
+    .filter((player) => !gameIsLocked(player, options))
     .map((player) => projections.get(player.playerKey))
     .filter((projection): projection is PlayerProjection => Boolean(projection))
     .filter((projection) => !scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(projection.player.team)))
@@ -814,9 +943,9 @@ export const recommendFreeAgentsProbability = (
         .sort((left, right) => left.delta - right.delta)
         .slice(0, 2)
         .map((impact) => `${impact.displayName} ${round(impact.delta * 100, 1)}pp`);
-      const confidence = questionable(player) || projection.sampleSize < 5
-        ? "Low"
-        : projection.sampleSize >= 20 ? "High" : "Medium";
+      const confidence = confidenceDetails(projection);
+      const rawScore = scored.score;
+      const riskAdjustedScore = rawScore * injuryMultiplier(player);
       return {
         playerKey: player.playerKey,
         name: player.name,
@@ -828,13 +957,20 @@ export const recommendFreeAgentsProbability = (
         period: player.period,
         projectionBasis: player.statWindows && Object.keys(player.statWindows).length > 1 ? "blended" : "single-window",
         gamesPlayed: projection.sampleSize,
-        score: round(scored.score, 4),
+        score: round(riskAdjustedScore, 4),
         scoreType: scored.scoreType,
-        confidence,
+        rawScore: round(rawScore, 4),
+        riskAdjustedScore: round(riskAdjustedScore, 4),
+        confidence: confidence.label,
+        confidenceScore: confidence.score,
+        confidenceReasons: confidence.reasons,
+        projectionSource: player.projectionSource ?? (projection.sampleSize > 0 ? "current-season" : "market-only"),
+        validationCoverage: aggregateCoverage(scored.impacts.map((impact) => impact.category)),
+        lockVerified: scheduleKnown && options.scheduleGames !== undefined,
         lineupImpact,
         categoryImpacts: sortedImpacts,
         reason,
-        watchouts,
+        watchouts: [...watchouts, ...(questionable(player) ? [`${player.status} health adjustment`] : [])],
         projections: {
           pts: round(projection.rates.pts),
           reb: round(projection.rates.reb),
@@ -850,11 +986,165 @@ export const recommendFreeAgentsProbability = (
     .slice(0, options.topN ?? 50);
 };
 
+interface ObjectiveScore {
+  score: number;
+  reasons: string[];
+  watchouts: string[];
+}
+
+const pointsObjective = (projection: PlayerProjection, categories: LeagueCategory[]): ObjectiveScore => {
+  const contributions = categories.filter((category) => category.enabled && Number.isFinite(category.scoringModifier)).map((category) => {
+    const contribution = categoryContribution(category.name, projection);
+    let value = 0;
+    if (contribution && "value" in contribution) value = contribution.value ?? 0;
+    else if (contribution && "made" in contribution) {
+      value = (contribution.attempted ?? 0) > 0 ? (contribution.made ?? 0) / (contribution.attempted ?? 1) : 0;
+    } else if (contribution && "assists" in contribution) {
+      value = (contribution.turnovers ?? 0) > 0 ? (contribution.assists ?? 0) / (contribution.turnovers ?? 1) : 0;
+    }
+    return {
+      label: category.displayName,
+      value: value * (category.scoringModifier ?? 0),
+    };
+  });
+  return {
+    score: contributions.reduce((sum, item) => sum + item.value, 0),
+    reasons: contributions.filter((item) => item.value > 0).sort((a, b) => b.value - a.value).slice(0, 3).map((item) => `${item.label} +${round(item.value, 1)}`),
+    watchouts: contributions.filter((item) => item.value < 0).sort((a, b) => a.value - b.value).slice(0, 2).map((item) => `${item.label} ${round(item.value, 1)}`),
+  };
+};
+
+const rankPoints = (values: number[], selectedIndex: number, lowerIsBetter: boolean) => {
+  const selected = values[selectedIndex];
+  if (!Number.isFinite(selected)) return 0;
+  const ahead = values.filter((value, index) => index !== selectedIndex && Number.isFinite(value) && (lowerIsBetter ? value < selected : value > selected)).length;
+  const tied = values.filter((value) => Number.isFinite(value) && value === selected).length;
+  return values.length - ahead - (tied - 1) / 2;
+};
+
+const rotoObjective = (
+  projection: PlayerProjection,
+  categories: LeagueCategory[],
+  teams: LeagueTeamStats[],
+  selectedTeamKey: string | undefined,
+): ObjectiveScore => {
+  const selectedIndex = teams.findIndex((team) => team.teamKey === selectedTeamKey);
+  if (selectedIndex < 0 || teams.length < 2) return { score: 0, reasons: [], watchouts: ["Standings unavailable"] };
+  const gains: Array<{ label: string; gain: number }> = [];
+  for (const category of categories.filter((item) => item.enabled)) {
+    if (categoryValidationCoverage(category.name) === "unsupported") continue;
+    const values = teams.map((team) => toNumber(team.stats[category.statId]));
+    if (!values.every(Number.isFinite)) continue;
+    const contribution = categoryContribution(category.name, projection);
+    if (!contribution) continue;
+    const projected = [...values];
+    if ("made" in contribution) {
+      const selectedRaw = teams[selectedIndex].stats[category.statId];
+      const [rawMade, rawAttempts] = splitRatio(selectedRaw);
+      const attempts = Number.isFinite(rawAttempts) && rawAttempts > 0 ? rawAttempts : 100;
+      const made = Number.isFinite(rawMade) ? rawMade : values[selectedIndex] * attempts;
+      projected[selectedIndex] = (made + (contribution.made ?? 0)) / Math.max(1, attempts + (contribution.attempted ?? 0));
+    } else if ("assists" in contribution) {
+      continue;
+    } else {
+      projected[selectedIndex] += contribution.value ?? 0;
+    }
+    const before = rankPoints(values, selectedIndex, LOWER_IS_BETTER.has(category.name));
+    const after = rankPoints(projected, selectedIndex, LOWER_IS_BETTER.has(category.name));
+    gains.push({ label: category.displayName, gain: after - before });
+  }
+  return {
+    score: gains.reduce((sum, item) => sum + item.gain, 0),
+    reasons: gains.filter((item) => item.gain > 0).sort((a, b) => b.gain - a.gain).slice(0, 3).map((item) => `${item.label} +${round(item.gain, 1)} roto pts`),
+    watchouts: gains.filter((item) => item.gain < 0).sort((a, b) => a.gain - b.gain).slice(0, 2).map((item) => `${item.label} ${round(item.gain, 1)} roto pts`),
+  };
+};
+
+const objectiveRecommendations = (
+  freeAgents: FreeAgent[],
+  options: RecommendationOptions,
+  objective: "points" | "rotisserie",
+): Recommendation[] => {
+  const playingTeams = new Set([...(options.teamsPlaying ?? [])].map(normalizeTeamAbbreviation));
+  const scheduleKnown = options.strictGameDay === true;
+  const pool = freeAgents.filter((player) => !confirmedInactive(player) && !gameIsLocked(player, options) && (!scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(player.team))));
+  const allPlayers = [...pool, ...(options.roster ?? [])];
+  const priors = projectionPriors(allPlayers);
+  const projections = new Map(allPlayers.map((player) => [player.playerKey, projectPlayer(player, priors)]));
+  const evaluate = (projection: PlayerProjection) => objective === "points"
+    ? pointsObjective(projection, options.categories ?? [])
+    : rotoObjective(projection, options.categories ?? [], options.standingsTeams ?? [], options.selectedTeamKey);
+  const slots = availableLineupSlots(options);
+  const rosterAssignments = (options.roster ?? []).filter((player) => !confirmedInactive(player))
+    .filter((player) => !gameIsLocked(player, options))
+    .map((player) => projections.get(player.playerKey)).filter((projection): projection is PlayerProjection => Boolean(projection))
+    .filter((projection) => !scheduleKnown || playingTeams.has(normalizeTeamAbbreviation(projection.player.team)))
+    .map((projection) => ({ projection, utility: evaluate(projection).score }));
+  const baseline = slots.length ? optimizeLineup(rosterAssignments, slots) : undefined;
+
+  return pool.map((player): Recommendation => {
+    const projection = projections.get(player.playerKey) as PlayerProjection;
+    let netProjection = projection;
+    let lineupImpact: Recommendation["lineupImpact"] = { status: "unknown", label: options.lineupAvailable === false ? "Lineup unavailable" : "Full game value" };
+    if (baseline && options.lineupAvailable !== false) {
+      const withCandidate = optimizeLineup([...rosterAssignments, { projection, utility: evaluate(projection).score }], slots);
+      const candidateSlot = withCandidate.slots.find(({ player: item }) => item.projection.player.playerKey === player.playerKey);
+      if (!candidateSlot) {
+        netProjection = subtractProjection(projection, projection);
+        lineupImpact = { status: "not-started", label: "No lineup gain" };
+      } else {
+        const nextKeys = new Set(withCandidate.slots.map(({ player: item }) => item.projection.player.playerKey));
+        const displaced = baseline.slots.find(({ player: item }) => !nextKeys.has(item.projection.player.playerKey));
+        netProjection = subtractProjection(projection, displaced?.player.projection);
+        lineupImpact = displaced
+          ? { status: "replaces", label: `Starts over ${displaced.player.projection.player.name}`, slot: candidateSlot.slot, displacedPlayer: displaced.player.projection.player.name }
+          : { status: "fills", label: `Fills ${candidateSlot.slot.toUpperCase()}`, slot: candidateSlot.slot };
+      }
+    }
+    const raw = evaluate(netProjection);
+    const riskAdjusted = raw.score * injuryMultiplier(player);
+    const confidence = confidenceDetails(projection);
+    return {
+      playerKey: player.playerKey,
+      name: player.name,
+      position: player.position,
+      team: normalizeTeamAbbreviation(player.team),
+      headshotUrl: player.headshotUrl,
+      gameToday: playingTeams.has(normalizeTeamAbbreviation(player.team)),
+      gameVerified: scheduleKnown,
+      period: player.period,
+      projectionBasis: player.statWindows && Object.keys(player.statWindows).length > 1 ? "blended" : "single-window",
+      gamesPlayed: projection.sampleSize,
+      score: round(riskAdjusted, 4),
+      scoreType: objective === "points" ? "fantasy-points" : "roto-points",
+      rawScore: round(raw.score, 4),
+      riskAdjustedScore: round(riskAdjusted, 4),
+      confidence: confidence.label,
+      confidenceScore: confidence.score,
+      confidenceReasons: confidence.reasons,
+      projectionSource: player.projectionSource ?? (projection.sampleSize > 0 ? "current-season" : "market-only"),
+      validationCoverage: aggregateCoverage((options.categories ?? []).map((category) => category.name)),
+      lockVerified: scheduleKnown && options.scheduleGames !== undefined,
+      lineupImpact,
+      categoryImpacts: [],
+      reason: raw.reasons,
+      watchouts: [...raw.watchouts, ...(questionable(player) ? [`${player.status} health adjustment`] : [])],
+      projections: {
+        pts: round(projection.rates.pts), reb: round(projection.rates.reb), ast: round(projection.rates.ast),
+        stl: round(projection.rates.stl), blk: round(projection.rates.blk), threePm: round(projection.rates.threePm),
+        turnovers: round(projection.rates.turnovers),
+      },
+    };
+  }).sort((left, right) => right.score - left.score).slice(0, options.topN ?? 50);
+};
+
 export const recommendFreeAgents = (
   freeAgents: FreeAgent[],
   needs: MatchupCategoryRow[],
   options: RecommendationOptions = {},
 ) => {
+  if (options.scoringFormat === "points") return objectiveRecommendations(freeAgents, options, "points");
+  if (options.scoringFormat === "rotisserie") return objectiveRecommendations(freeAgents, options, "rotisserie");
   if (SELECTED_RECOMMENDER === "probability") {
     return recommendFreeAgentsProbability(freeAgents, needs, options);
   }
