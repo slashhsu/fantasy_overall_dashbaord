@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       targetDate,
       timeZone,
       matchupId,
+      teamKey: url.searchParams.get("teamKey")?.trim() || undefined,
       forceRefresh: url.searchParams.get("forceRefresh") === "true",
     });
     return NextResponse.json(dashboard, {

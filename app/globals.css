@@ -560,3 +560,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .arena-emblem { width: 64px; height: 64px; }
   .login-panel { padding: 30px 24px; }
 }
+
+.weekly-report-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.weekly-report-controls .control-group { width: min(280px, 100%); }
+@media (max-width: 720px) { .weekly-report-controls { width: 100%; } }

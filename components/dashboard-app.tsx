@@ -112,6 +112,7 @@ export function DashboardApp() {
   const [timeZone, setTimeZone] = useState("America/New_York");
   const [targetDate, setTargetDate] = useState(() => dateInTimeZone("America/New_York"));
   const [matchupId, setMatchupId] = useState("");
+  const [teamKey, setTeamKey] = useState("");
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("recommendations");
   const [loadingLeagues, setLoadingLeagues] = useState(true);
@@ -179,6 +180,7 @@ export function DashboardApp() {
     });
     const nextMatchupId = requestedMatchupId ?? matchupId;
     if (nextMatchupId) params.set("matchupId", nextMatchupId);
+    if (teamKey) params.set("teamKey", teamKey);
     if (forceRefresh) params.set("forceRefresh", "true");
     try {
       const result = await requestJson<DashboardResponse>(`/api/dashboard?${params}`);
@@ -190,7 +192,7 @@ export function DashboardApp() {
     } finally {
       if (currentRequest === requestNumber.current) setLoadingDashboard(false);
     }
-  }, [handleRequestError, leagueKey, matchupId, targetDate, timeZone, week]);
+  }, [handleRequestError, leagueKey, matchupId, targetDate, timeZone, week, teamKey]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -204,10 +206,12 @@ export function DashboardApp() {
     setLeagueKey(nextLeagueKey);
     setWeek(nextLeague?.currentWeek ?? 1);
     setMatchupId("");
+    setTeamKey("");
     setDashboard(null);
   };
 
   const chooseMatchup = (nextMatchupId: string) => {
+    setTeamKey("");
     setMatchupId(nextMatchupId);
   };
 
@@ -393,7 +397,7 @@ export function DashboardApp() {
               onSort={setSort}
             />
           ) : null}
-          {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} /> : null}
+          {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} loading={loadingDashboard} onChooseTeam={(key) => { setTeamKey(key); setMatchupId(""); }} /> : null}
           {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={chooseMatchup} /> : null}
           {dashboard && activeTab === "raw" ? <RawDataView dashboard={dashboard} /> : null}
           {loadingDashboard && dashboard ? <div className="panel-loading"><RefreshCw size={16} className="animate-spin" /> Updating</div> : null}
@@ -525,12 +529,32 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
   );
 }
 
-function WeeklyReportView({ dashboard }: { dashboard: DashboardResponse }) {
+function WeeklyReportView({ dashboard, loading, onChooseTeam }: {
+  dashboard: DashboardResponse;
+  loading: boolean;
+  onChooseTeam: (key: string) => void;
+}) {
+  const teams = [...new Map([
+    ...dashboard.matchups.flatMap((matchup) => [matchup.teamA, matchup.teamB]),
+    ...dashboard.standingsContext.teams,
+  ].filter((team) => team.teamKey !== "league-average").map((team) => [team.teamKey, team])).values()];
   return (
     <>
       <div className="panel-heading">
         <div><p className="eyebrow">Week {dashboard.week}</p><h2>{dashboard.selectedTeamName} vs {dashboard.opponentName}</h2><p>Categories are ranked by how much a free-agent pickup can matter.</p></div>
-        <span className="need-legend"><span /> Higher priority</span>
+        <div className="weekly-report-controls">
+          <label className="control-group">
+            <span className="control-label">Your team</span>
+            <span className="select-wrap">
+              <select aria-label="Weekly report team" value={dashboard.selectedTeamKey}
+                disabled={loading} onChange={(event) => onChooseTeam(event.target.value)}>
+                {teams.map((team) => <option key={team.teamKey} value={team.teamKey}>{team.name}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </span>
+          </label>
+          <span className="need-legend"><span /> Higher priority</span>
+        </div>
       </div>
       <div className="table-scroll">
         <table className="data-table report-table">

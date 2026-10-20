@@ -35,6 +35,7 @@ interface DashboardOptions {
   targetDate: string;
   timeZone: string;
   matchupId?: string;
+  teamKey?: string;
   forceRefresh?: boolean;
 }
 
@@ -145,7 +146,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       configuration: configuration.value,
       matchups: matchups.value.length || configuration.value.scoringFormat !== "rotisserie"
         ? matchups.value
-        : [rotoMatchup(league, options.week, mergedStandings)].filter((item): item is Matchup => Boolean(item)),
+        : [rotoMatchup({ ...league, userTeam: { ...league.userTeam, key: options.teamKey ?? league.userTeam.key } }, options.week, mergedStandings)].filter((item): item is Matchup => Boolean(item)),
       freeAgents: freeAgents.value.players,
       teamsPlaying: nbaSchedule.value.teamsPlaying,
       schedule: nbaSchedule.value.schedule,
@@ -163,14 +164,21 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     cached = configuration.cached && matchups.cached && freeAgents.cached && nbaSchedule.cached && standings.cached && teamStats.cached;
   }
 
+  const perspectiveTeamKey = options.teamKey ?? league.userTeam.key;
+  const eligibleMatchups = options.teamKey
+    ? base.matchups.filter((matchup) => matchup.teamA.teamKey === options.teamKey || matchup.teamB.teamKey === options.teamKey)
+    : base.matchups;
+  if (options.teamKey && !eligibleMatchups.length) {
+    throw new ValidationError("The selected team has no matchup data for this league and week.");
+  }
   const selectedMatchup = findSelectedMatchup(
-    base.matchups,
+    eligibleMatchups,
     options.matchupId,
-    league.userTeam.key,
+    perspectiveTeamKey,
   );
   if (!selectedMatchup) throw new ValidationError("Yahoo returned no matchup or standings data for the selected week.");
 
-  const selectedTeamIsB = selectedMatchup.teamB.teamKey === league.userTeam.key;
+  const selectedTeamIsB = selectedMatchup.teamB.teamKey === perspectiveTeamKey;
   const selectedTeam = selectedTeamIsB ? selectedMatchup.teamB : selectedMatchup.teamA;
   const opponent = selectedTeamIsB ? selectedMatchup.teamA : selectedMatchup.teamB;
   const categoryNeeds = evaluateMatchup(selectedTeam, opponent, base.configuration.categories);
