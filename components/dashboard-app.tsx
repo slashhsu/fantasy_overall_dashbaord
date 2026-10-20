@@ -1,5 +1,7 @@
 "use client";
 
+import { ArenaIntro } from "@/components/arena-intro";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -247,6 +249,7 @@ export function DashboardApp() {
       <AppHeader demoMode={dashboard?.demoMode} />
 
       <div className="workspace-shell">
+        <ArenaIntro />
         <section className="control-bar" aria-label="Dashboard filters">
           <label className="control-group control-league">
             <span className="control-label">League</span>

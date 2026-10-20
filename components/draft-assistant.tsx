@@ -1,5 +1,7 @@
 "use client";
 
+import { ArenaIntro } from "@/components/arena-intro";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -336,6 +338,7 @@ export function DraftAssistant() {
     <main className="min-h-screen">
       <AppHeader demoMode={data?.demoMode} />
       <div className="workspace-shell draft-workspace">
+        <ArenaIntro draft />
         <section className="draft-control-bar" aria-label="Draft settings">
           <label className="control-group draft-league-control">
             <span className="control-label">League</span>
