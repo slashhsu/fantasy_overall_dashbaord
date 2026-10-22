@@ -113,7 +113,7 @@ export function DashboardApp() {
   const [targetDate, setTargetDate] = useState(() => dateInTimeZone("America/New_York"));
   const [matchupId, setMatchupId] = useState("");
   const [teamKey, setTeamKey] = useState("");
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [dashboardData, setDashboard] = useState<DashboardResponse | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("recommendations");
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
@@ -133,6 +133,8 @@ export function DashboardApp() {
   useEffect(() => {
     window.localStorage.setItem("fantasy-time-zone:v1", timeZone);
   }, [timeZone]);
+
+  const dashboard = dashboardData?.week === week && !error ? dashboardData : null;
 
   const selectedLeague = useMemo(
     () => leagues.find((league) => league.leagueKey === leagueKey),
@@ -210,6 +212,21 @@ export function DashboardApp() {
     setDashboard(null);
   };
 
+  const chooseWeek = (nextWeek: number) => {
+    if (!selectedLeague || nextWeek < selectedLeague.startWeek || nextWeek > selectedLeague.endWeek) return;
+    ++requestNumber.current;
+    setTeamKey(teamKey || dashboardData?.selectedTeamKey || selectedLeague.userTeam.key);
+    setMatchupId("");
+    setError("");
+    setLoadingDashboard(true);
+    setWeek(nextWeek);
+  };
+
+  const reportTeams = [...new Map([
+    ...(dashboardData?.matchups.flatMap((matchup) => [matchup.teamA, matchup.teamB]) ?? []),
+    ...(dashboardData?.standingsContext.teams ?? []),
+  ].filter((team) => team.teamKey !== "league-average").map((team) => [team.teamKey, team])).values()];
+
   const chooseMatchup = (nextMatchupId: string) => {
     setTeamKey("");
     setMatchupId(nextMatchupId);
@@ -279,7 +296,7 @@ export function DashboardApp() {
                 type="button"
                 title="Previous week"
                 aria-label="Previous week"
-                onClick={() => setWeek((value) => Math.max(selectedLeague?.startWeek ?? 1, value - 1))}
+                onClick={() => chooseWeek(week - 1)}
                 disabled={!selectedLeague || week <= selectedLeague.startWeek}
               ><Minus size={14} /></button>
               <span>Week {week}</span>
@@ -287,7 +304,7 @@ export function DashboardApp() {
                 type="button"
                 title="Next week"
                 aria-label="Next week"
-                onClick={() => setWeek((value) => Math.min(selectedLeague?.endWeek ?? 24, value + 1))}
+                onClick={() => chooseWeek(week + 1)}
                 disabled={!selectedLeague || week >= selectedLeague.endWeek}
               ><Plus size={14} /></button>
             </div>
@@ -354,7 +371,7 @@ export function DashboardApp() {
         <section className="summary-strip" aria-label="Matchup summary">
           <div className="summary-primary">
             <p className="eyebrow">Selected team</p>
-            <h1>{dashboard?.selectedTeamName ?? selectedLeague?.userTeam.name ?? "Loading league"}</h1>
+            <h1>{dashboard?.selectedTeamName ?? dashboardData?.selectedTeamName ?? selectedLeague?.userTeam.name ?? "Loading league"}</h1>
             <p className="summary-opponent">
               {dashboard ? `vs ${dashboard.opponentName}` : "Preparing your weekly report"}
             </p>
@@ -383,7 +400,36 @@ export function DashboardApp() {
           ))}
         </nav>
 
-        <section className="content-panel">
+        <section className="content-panel" aria-busy={loadingDashboard}>
+          {activeTab === "report" && selectedLeague ? (
+            <div className="panel-heading weekly-report-filter-bar">
+              <div className="weekly-report-controls">
+                <label className="control-group">
+                  <span className="control-label">Week</span>
+                  <span className="select-wrap">
+                    <select aria-label="Weekly report week" value={week} onChange={(event) => chooseWeek(Number(event.target.value))}>
+                      {Array.from({ length: selectedLeague.endWeek - selectedLeague.startWeek + 1 }, (_, index) => {
+                        const value = selectedLeague.startWeek + index;
+                        return <option key={value} value={value}>Week {value}{value === selectedLeague.currentWeek ? " (Current)" : ""}</option>;
+                      })}
+                    </select>
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </span>
+                </label>
+                <label className="control-group">
+                  <span className="control-label">Your team</span>
+                  <span className="select-wrap">
+                    <select aria-label="Weekly report team" value={teamKey || dashboardData?.selectedTeamKey || selectedLeague.userTeam.key}
+                      disabled={loadingDashboard || !reportTeams.length} onChange={(event) => { setTeamKey(event.target.value); setMatchupId(""); }}>
+                      {reportTeams.map((team) => <option key={team.teamKey} value={team.teamKey}>{team.name}</option>)}
+                    </select>
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </span>
+                </label>
+              </div>
+            </div>
+          ) : null}
+          {activeTab === "report" && error && !dashboard ? <EmptyState title="尚無對戰數據" detail={`Week ${week} 的資料目前無法取得，請選擇其他週次或重試。`} /> : null}
           {loadingDashboard && !dashboard ? <LoadingRows /> : null}
           {!loadingDashboard && !dashboard && !error ? (
             <EmptyState title="No dashboard data yet" detail="Choose a league to load its current matchup." />
@@ -397,7 +443,7 @@ export function DashboardApp() {
               onSort={setSort}
             />
           ) : null}
-          {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} loading={loadingDashboard} onChooseTeam={(key) => { setTeamKey(key); setMatchupId(""); }} /> : null}
+          {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} /> : null}
           {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={chooseMatchup} /> : null}
           {dashboard && activeTab === "raw" ? <RawDataView dashboard={dashboard} /> : null}
           {loadingDashboard && dashboard ? <div className="panel-loading"><RefreshCw size={16} className="animate-spin" /> Updating</div> : null}
@@ -529,32 +575,12 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
   );
 }
 
-function WeeklyReportView({ dashboard, loading, onChooseTeam }: {
-  dashboard: DashboardResponse;
-  loading: boolean;
-  onChooseTeam: (key: string) => void;
-}) {
-  const teams = [...new Map([
-    ...dashboard.matchups.flatMap((matchup) => [matchup.teamA, matchup.teamB]),
-    ...dashboard.standingsContext.teams,
-  ].filter((team) => team.teamKey !== "league-average").map((team) => [team.teamKey, team])).values()];
+function WeeklyReportView({ dashboard }: { dashboard: DashboardResponse }) {
   return (
     <>
       <div className="panel-heading">
         <div><p className="eyebrow">Week {dashboard.week}</p><h2>{dashboard.selectedTeamName} vs {dashboard.opponentName}</h2><p>Categories are ranked by how much a free-agent pickup can matter.</p></div>
-        <div className="weekly-report-controls">
-          <label className="control-group">
-            <span className="control-label">Your team</span>
-            <span className="select-wrap">
-              <select aria-label="Weekly report team" value={dashboard.selectedTeamKey}
-                disabled={loading} onChange={(event) => onChooseTeam(event.target.value)}>
-                {teams.map((team) => <option key={team.teamKey} value={team.teamKey}>{team.name}</option>)}
-              </select>
-              <ChevronDown size={15} aria-hidden="true" />
-            </span>
-          </label>
-          <span className="need-legend"><span /> Higher priority</span>
-        </div>
+        <span className="need-legend"><span /> Higher priority</span>
       </div>
       <div className="table-scroll">
         <table className="data-table report-table">

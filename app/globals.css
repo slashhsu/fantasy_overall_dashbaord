@@ -564,3 +564,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .weekly-report-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
 .weekly-report-controls .control-group { width: min(280px, 100%); }
 @media (max-width: 720px) { .weekly-report-controls { width: 100%; } }
+
+.weekly-report-filter-bar { min-height: auto; padding: 16px 22px; }
+.weekly-report-filter-bar .weekly-report-controls { width: 100%; }
+@media (max-width: 720px) {
+  .weekly-report-filter-bar .control-group { flex: 1 1 140px; width: auto; min-width: 0; }
+}
