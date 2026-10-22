@@ -1,3 +1,4 @@
+import { withUpdateStatus } from "@/lib/update-status";
 import { NextResponse } from "next/server";
 import { handleApiError, unauthorized } from "@/lib/api-response";
 import { isRequestAuthenticated } from "@/lib/auth";
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const leagueKey = url.searchParams.get("leagueKey")?.trim() ?? "";
     if (!leagueKey) throw new ValidationError("leagueKey is required.");
-    const data = await getDraftData(leagueKey, url.searchParams.get("forceRefresh") === "true");
+    const data = await withUpdateStatus(() => getDraftData(leagueKey, url.searchParams.get("forceRefresh") === "true"));
     return NextResponse.json(data, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return handleApiError(error);

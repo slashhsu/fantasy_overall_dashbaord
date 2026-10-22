@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { ArenaIntro } from "@/components/arena-intro";
 
@@ -64,6 +65,7 @@ const requestJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
   if (!response.ok) {
     throw Object.assign(new Error(payload.error || "Request failed."), {
       status: response.status,
+      code: payload.code,
     });
   }
   return payload;
@@ -116,6 +118,7 @@ export function DashboardApp() {
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
@@ -132,7 +135,7 @@ export function DashboardApp() {
     window.localStorage.setItem("fantasy-time-zone:v1", timeZone);
   }, [timeZone]);
 
-  const dashboard = dashboardData?.week === week && !error ? dashboardData : null;
+  const dashboard = dashboardData?.week === week && (!matchupId || dashboardData.selectedMatchupId === matchupId) && (!teamKey || dashboardData.selectedTeamKey === teamKey) && !error ? dashboardData : null;
 
   const selectedLeague = useMemo(
     () => leagues.find((league) => league.leagueKey === leagueKey),
@@ -148,6 +151,7 @@ export function DashboardApp() {
       router.refresh();
       return;
     }
+    setErrorCode(typeof requestError === "object" && requestError && "code" in requestError ? String(requestError.code) : "");
     setError(requestError instanceof Error ? requestError.message : "The dashboard could not load.");
   }, [router]);
 
@@ -226,7 +230,15 @@ export function DashboardApp() {
   ].filter((team) => team.teamKey !== "league-average").map((team) => [team.teamKey, team])).values()];
 
   const chooseMatchup = (nextMatchupId: string) => {
-    setTeamKey("");
+    const matchup = dashboardData?.matchups.find((item) => item.id === nextMatchupId);
+    if (!matchup) return;
+    const ownerKey = selectedLeague?.userTeam.key;
+    const perspective = matchup.teamB.teamKey === ownerKey ? matchup.teamB.teamKey : matchup.teamA.teamKey;
+    if (dashboard?.selectedMatchupId === nextMatchupId && dashboard.selectedTeamKey === perspective) return;
+    ++requestNumber.current;
+    setError("");
+    setLoadingDashboard(true);
+    setTeamKey(perspective);
     setMatchupId(nextMatchupId);
   };
 
@@ -348,15 +360,8 @@ export function DashboardApp() {
             </span>
           </label>
 
-          <button
-            type="button"
-            className="refresh-button"
-            onClick={() => void loadDashboard(true)}
-            disabled={loadingDashboard || !leagueKey}
-          >
-            <RefreshCw size={16} className={loadingDashboard ? "animate-spin" : ""} aria-hidden="true" />
-            <span>Refresh</span>
-          </button>
+          <RefreshControl status={dashboardData?.updateStatus} loading={loadingDashboard} disabled={!leagueKey}
+            onRefresh={() => void loadDashboard(true)} />
         </section>
 
         {error ? (
@@ -382,9 +387,11 @@ export function DashboardApp() {
           </div>
           <div className="summary-status">
             {dashboard ? <CheckCircle2 size={16} className="summary-status-icon" /> : <Clock3 size={16} />}
-            <span>{dashboard ? `${dashboard.cached ? "Cached" : "Live"} at ${formatUpdatedAt(dashboard.generatedAt)}` : "Connecting"}</span>
+            <span>{dashboard ? `${dashboard.updateStatus?.stale ? "Backup" : dashboard.cached ? "Cached" : "Live"} at ${formatUpdatedAt(dashboard.updateStatus?.fetchedAt ?? dashboard.generatedAt)}` : "Connecting"}</span>
           </div>
         </section>
+
+        <UpdateNotice status={dashboard?.updateStatus} />
 
         <nav className="tab-bar" aria-label="Dashboard views">
           {tabs.map((tab) => (
@@ -427,7 +434,7 @@ export function DashboardApp() {
               </div>
             </div>
           ) : null}
-          {activeTab === "report" && error && !dashboard ? <EmptyState title="尚無對戰數據" detail={`Week ${week} 的資料目前無法取得，請選擇其他週次或重試。`} /> : null}
+          {activeTab === "report" && error && !dashboard ? <EmptyState title={errorCode === "PROVIDER_BUSY" ? "資料服務忙碌中，請稍後重試" : "尚無對戰數據"} detail={errorCode === "PROVIDER_BUSY" ? error : `Week ${week} 的資料目前無法取得，請選擇其他週次或重試。`} /> : null}
           {loadingDashboard && !dashboard ? <LoadingRows /> : null}
           {!loadingDashboard && !dashboard && !error ? (
             <EmptyState title="No dashboard data yet" detail="Choose a league to load its current matchup." />
@@ -442,7 +449,7 @@ export function DashboardApp() {
             />
           ) : null}
           {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} /> : null}
-          {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={chooseMatchup} /> : null}
+          {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={(id) => { setActiveTab("report"); chooseMatchup(id); }} /> : null}
           {dashboard && activeTab === "raw" ? <RawDataView dashboard={dashboard} /> : null}
           {loadingDashboard && dashboard ? <div className="panel-loading"><RefreshCw size={16} className="animate-spin" /> Updating</div> : null}
         </section>

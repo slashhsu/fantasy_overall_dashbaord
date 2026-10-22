@@ -33,10 +33,12 @@ describe("Yahoo OAuth client", () => {
   });
 
   it("surfaces Yahoo failures without treating them as successful data", async () => {
-    vi.spyOn(globalThis, "fetch")
+    const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "access" }), { status: 200 }))
       .mockImplementation(async () => new Response("rate limited", { status: 429 }));
     await expect(fetchYahooXml("/league/test/settings")).rejects.toBeInstanceOf(YahooApiError);
+    await expect(fetchYahooXml("/league/test/settings")).rejects.toMatchObject({ name: "ProviderBusyError" });
+    expect(fetchMock).toHaveBeenCalledTimes(2); // one OAuth call and one Fantasy call, no 429 retries
   });
 
   it("identifies token refresh failures as OAuth errors", async () => {

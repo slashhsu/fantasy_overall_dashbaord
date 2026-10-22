@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ApiErrorPayload } from "@/lib/types";
 import { YahooApiError } from "@/lib/yahoo-client";
-import { ConfigurationError, UpstreamError, ValidationError } from "@/lib/errors";
+import { ConfigurationError, UpstreamError, ValidationError, ProviderBusyError } from "@/lib/errors";
 
 export const unauthorized = () =>
   NextResponse.json<ApiErrorPayload>({ error: "Authentication required.", code: "UNAUTHORIZED" }, {
@@ -17,6 +17,11 @@ export const handleApiError = (error: unknown) => {
     message: error instanceof Error ? error.message : "Unexpected server error.",
     ...(error instanceof YahooApiError ? { upstreamStatus: error.status } : {}),
   }));
+  if (error instanceof ProviderBusyError || (error instanceof YahooApiError && error.status === 429)) {
+    const retryAfter = error.retryAfterSeconds ?? 60;
+    return NextResponse.json({ error: `Yahoo is busy or temporarily rate limited. Please retry in ${retryAfter} seconds.`, code: "PROVIDER_BUSY", retryAfterSeconds: retryAfter, requestId },
+      { status: 503, headers: { "Cache-Control": "private, no-store", "Retry-After": String(retryAfter) } });
+  }
   if (error instanceof YahooApiError) {
     const oauthFailure = error.source === "oauth";
     return NextResponse.json<ApiErrorPayload>(

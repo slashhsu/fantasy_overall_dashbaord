@@ -1,3 +1,4 @@
+import { withUpdateStatus } from "@/lib/update-status";
 import { NextResponse } from "next/server";
 import { handleApiError, unauthorized } from "@/lib/api-response";
 import { isRequestAuthenticated } from "@/lib/auth";
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
     requireIsoDate(targetDate);
     requireTimeZone(timeZone);
 
-    const dashboard = await getDashboard({
+    const dashboard = await withUpdateStatus(() => getDashboard({
       leagueKey,
       week,
       targetDate,
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
       matchupId,
       teamKey: url.searchParams.get("teamKey")?.trim() || undefined,
       forceRefresh: url.searchParams.get("forceRefresh") === "true",
-    });
+    }));
     return NextResponse.json(dashboard, {
       headers: { "Cache-Control": "private, no-store" },
     });

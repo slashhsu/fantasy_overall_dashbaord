@@ -574,3 +574,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .player-avatar { position: relative; overflow: hidden; }
 .player-avatar-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; opacity: 0; background: #fff1e5; }
 .player-avatar-photo.is-loaded { opacity: 1; }
+
+.update-notice { margin: 10px 2px; color: #acb2bd; font-size: 11px; }
+
+.refresh-button { white-space: nowrap; }

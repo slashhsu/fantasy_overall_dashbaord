@@ -18,3 +18,7 @@ export class UpstreamError extends Error {
     this.name = "UpstreamError";
   }
 }
+
+export class ProviderBusyError extends Error {
+  constructor(message: string, public retryAfterSeconds: number) { super(message); this.name = "ProviderBusyError"; }
+}

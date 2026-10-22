@@ -1,3 +1,9 @@
+export interface UpdateStatus {
+  fetchedAt: string;
+  stale: boolean;
+  nextRefreshAt: string;
+}
+
 export type MatchupSide = "Win" | "Lose" | "Draw" | "No Data";
 export type PlayerStatPeriod = "lastmonth" | "lastweek" | "season";
 export type LeagueScoringFormat = "each-category" | "most-categories" | "rotisserie" | "points" | "unknown";
@@ -137,6 +143,7 @@ export interface DraftResult {
 }
 
 export interface DraftDataResponse {
+  updateStatus?: UpdateStatus;
   generatedAt: string;
   cached: boolean;
   demoMode: boolean;
@@ -340,6 +347,7 @@ export interface StandingsContext {
 }
 
 export interface DashboardResponse {
+  updateStatus?: UpdateStatus;
   generatedAt: string;
   cached: boolean;
   demoMode: boolean;
@@ -368,6 +376,7 @@ export interface DashboardResponse {
 }
 
 export interface ApiErrorPayload {
+  retryAfterSeconds?: number;
   error: string;
   code?: string;
   details?: string;

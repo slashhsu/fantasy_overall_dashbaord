@@ -1,3 +1,4 @@
+import { withUpdateStatus } from "@/lib/update-status";
 import { NextResponse } from "next/server";
 import { handleApiError, unauthorized } from "@/lib/api-response";
 import { isRequestAuthenticated } from "@/lib/auth";
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("forceRefresh") === "true";
-    const result = await getLeagueSummaries(forceRefresh);
+    const result = await withUpdateStatus(() => getLeagueSummaries(forceRefresh));
     return NextResponse.json(result, {
       headers: { "Cache-Control": "private, no-store" },
     });

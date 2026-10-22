@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { ArenaIntro } from "@/components/arena-intro";
 
@@ -369,12 +370,11 @@ export function DraftAssistant() {
               <span>{syncYahooPicks ? "Live sync" : "Mock mode"}</span>
             </span>
           </label>
-          <button type="button" className="refresh-button" onClick={() => void loadDraft(true)} disabled={loading || !leagueKey}>
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            <span>Refresh</span>
-          </button>
+          <RefreshControl status={data?.league.leagueKey === leagueKey ? data.updateStatus : undefined} loading={loading} disabled={!leagueKey} onRefresh={() => void loadDraft(true)} />
           <button type="button" className="icon-command" onClick={resetDraft} title="Reset mock draft" aria-label="Reset mock draft" disabled={syncYahooPicks}><RotateCcw size={16} /></button>
         </section>
+
+        <UpdateNotice status={data?.league.leagueKey === leagueKey ? data.updateStatus : undefined} />
 
         {error ? (
           <section className="error-banner" role="alert">

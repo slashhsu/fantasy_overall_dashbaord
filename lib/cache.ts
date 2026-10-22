@@ -1,5 +1,9 @@
+import { recordMetric } from "@/lib/usage-metrics";
+import { recordUpdate } from "@/lib/update-status";
+
 interface CacheEntry<T> {
   value: T;
+  fetchedAt: number;
   expiresAt: number;
   staleUntil: number;
   touchedAt: number;
@@ -50,6 +54,7 @@ export const setCached = <T>(key: string, value: T, ttlSeconds: number, staleSec
   const now = Date.now();
   cache.set(key, {
     value,
+    fetchedAt: now,
     expiresAt: now + ttlSeconds * 1000,
     staleUntil: now + (ttlSeconds + staleSeconds) * 1000,
     touchedAt: now,
@@ -70,15 +75,22 @@ export const withCache = async <T>(
   forceRefresh = false,
   options: { staleIfErrorSeconds?: number } = {},
 ): Promise<{ value: T; cached: boolean; stale: boolean }> => {
-  if (!forceRefresh) {
-    const existing = getCached<T>(key);
-    if (existing !== undefined) return { value: existing, cached: true, stale: false };
-  }
-
   type CacheResult = { value: T; cached: boolean; stale: boolean };
+  const report = (result: CacheResult): CacheResult => {
+    const entry = cache.get(key);
+    if (entry) recordUpdate({ fetchedAt: new Date(entry.fetchedAt).toISOString(), stale: result.stale,
+      nextRefreshAt: new Date(entry.fetchedAt + 60_000).toISOString() });
+    return result;
+  };
   const existingPromise = inflight.get(key) as Promise<CacheResult> | undefined;
-  if (existingPromise) return existingPromise;
-
+  if (existingPromise) { recordMetric("mergedRequests"); return report(await existingPromise); }
+  const existing = cacheEntry<T>(key);
+  const cooling = existing && Date.now() - existing.fetchedAt < 60_000;
+  if (existing && existing.staleUntil > Date.now() &&
+      ((!forceRefresh && existing.expiresAt > Date.now()) || (forceRefresh && cooling))) {
+    recordMetric(forceRefresh ? "cooldownHits" : "cacheHits");
+    return report({ value: existing.value, cached: true, stale: existing.expiresAt <= Date.now() });
+  }
   const pending = (async (): Promise<CacheResult> => {
     try {
       const value = await loader();
@@ -86,13 +98,16 @@ export const withCache = async <T>(
       return { value, cached: false, stale: false };
     } catch (error) {
       const stale = cacheEntry<T>(key);
-      if (stale && stale.staleUntil > Date.now()) return { value: stale.value, cached: true, stale: true };
+      if (stale && stale.staleUntil > Date.now()) {
+        recordMetric("cacheHits");
+        return { value: stale.value, cached: true, stale: true };
+      }
       throw error;
     }
   })();
   inflight.set(key, pending);
   try {
-    return await pending;
+    return report(await pending);
   } finally {
     if (inflight.get(key) === pending) inflight.delete(key);
   }

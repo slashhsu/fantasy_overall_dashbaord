@@ -131,3 +131,35 @@ Raw provider responses are cached under `.cache/recommender/` and excluded from 
 The checked-in v2 `2026REG single-season validation` artifact promotes Matchup Swing. Its held-out clustered-bootstrap improvement over the production-parity baseline has a 95% interval of `0.01699` to `0.08186`, and its projection NMAE is `0.71172` versus the baseline's `0.71479`. Both promotion checks therefore pass. The report contains 435 standard 9-category scenarios plus an extended OREB, derived A/T, and DD profile. Only the standard categories are labeled validated; OREB/A/T/DD remain modeled-unvalidated until multi-season evidence is available.
 
 The app is recommendation-only. It does not add or drop Yahoo players.
+
+### Sharing with league members
+
+The server uses an in-memory cache (default `CACHE_TTL_SECONDS=300`) with per-key
+single-flight loading and a 60-second forced-refresh cooldown measured from the
+last successful fetch. Reading a cache entry does not extend that cooldown.
+Missing keys still load normally, and ordinary reads continue to follow their
+resource TTL (including the draft results' shorter sync TTL). Upstream failures
+can use cached backup data for up to one hour after the normal TTL expires.
+
+All Fantasy API calls, including retries, pass through an instance-wide queue:
+maximum two concurrent requests, ten-second queue timeout. A Yahoo 429 pauses
+new Fantasy requests for its numeric or HTTP-date `Retry-After`, or 60 seconds
+when absent/invalid. Queued calls fail promptly during this pause; callers can
+use backup cache data. OAuth refresh remains deduplicated separately.
+
+Dashboard, draft and league responses may include `updateStatus` with `fetchedAt`
+(the oldest contributing cached resource), `stale`, and `nextRefreshAt` (the latest
+contributing resource cooldown). The UI shows backup data timestamps and a refresh
+countdown. Queue pressure or rate limiting without backup returns HTTP 503,
+`code: PROVIDER_BUSY`, and a `Retry-After` header.
+
+A `fantasy_usage` JSON log aggregates activity over 60 seconds: Yahoo request
+attempts and average latency, 429s, cache hits, merged loads, forced refreshes
+served from cooldown, and queue timeouts. Timers/logs are best effort: a serverless
+instance may freeze before emission. No credentials or response bodies are logged.
+
+These protections are **per process/instance**, not a distributed quota. Different
+Vercel instances do not share cache, queues, OAuth state or cooldowns, and restarts
+reset them. No Redis or paid service is required. Start with one league (roughly
+10–20 participants), observe latency/errors and provider usage, then assess scale;
+the simulated concurrency tests do not establish a production user capacity.

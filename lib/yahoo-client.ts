@@ -1,5 +1,6 @@
 import "server-only";
 
+import { pauseYahoo, withYahooSlot, resetYahooGateForTests } from "@/lib/yahoo-request-gate";
 import { getYahooConfig } from "@/lib/config";
 
 const API_BASE = "https://fantasysports.yahooapis.com/fantasy/v2";
@@ -24,6 +25,7 @@ export class YahooApiError extends Error {
     public status: number,
     public responseBody?: string,
     public source: "oauth" | "fantasy" = "fantasy",
+    public retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "YahooApiError";
@@ -84,21 +86,24 @@ const refreshAccessToken = async (force = false) => {
 const requestYahoo = async (path: string, retryAuth = true): Promise<string> => {
   const accessToken = await refreshAccessToken();
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/xml",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(API_TIMEOUT_MS),
+    const { response, responseBody } = await withYahooSlot(async () => {
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/xml" },
+        cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS),
+      });
+      if (response.status === 429) {
+        const retryAfter = pauseYahoo(response.headers.get("retry-after"));
+        await response.body?.cancel();
+        throw new YahooApiError("Yahoo Fantasy rate limit reached.", 429, undefined, "fantasy", retryAfter);
+      }
+      return { response, responseBody: await response.text() };
     });
     if (response.status === 401 && retryAuth) {
       await refreshAccessToken(true);
       return requestYahoo(path, false);
     }
-    const responseBody = await response.text();
     if (response.ok) return responseBody;
-    if ((response.status === 429 || response.status >= 500) && attempt < MAX_ATTEMPTS - 1) {
+    if ((response.status >= 500) && attempt < MAX_ATTEMPTS - 1) {
       await wait(retryDelay(response, attempt));
       continue;
     }
@@ -110,6 +115,7 @@ const requestYahoo = async (path: string, retryAuth = true): Promise<string> => 
 export const fetchYahooXml = (path: string) => requestYahoo(path);
 
 export const resetYahooTokenForTests = () => {
+  resetYahooGateForTests();
   delete globalTokens.__yahooFantasyToken;
   delete globalTokens.__yahooFantasyRefresh;
 };
