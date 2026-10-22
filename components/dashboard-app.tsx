@@ -1,5 +1,6 @@
 "use client";
 
+import { PlayerAvatar } from "@/components/player-avatar";
 import { ArenaIntro } from "@/components/arena-intro";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -76,9 +77,6 @@ const resultClass = (side: MatchupCategoryRow["side"]) => {
   if (side === "Draw") return "result-draw";
   return "result-neutral";
 };
-
-const initials = (name: string) =>
-  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
 const formatUpdatedAt = (iso: string) =>
   new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -548,7 +546,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   <td className="rank-column"><span className={index < 3 ? "rank-number top" : "rank-number"}>{index + 1}</span></td>
                   <td>
                     <div className="player-cell">
-                      <span className="player-avatar">{initials(player.name)}</span>
+                      <PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} />
                       <span><strong>{player.name}</strong><small>{player.position} · {player.projectionBasis === "blended" ? "Blended form" : player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}</small></span>
                     </div>
                   </td>

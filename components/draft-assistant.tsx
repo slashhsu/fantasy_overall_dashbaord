@@ -1,5 +1,6 @@
 "use client";
 
+import { PlayerAvatar } from "@/components/player-avatar";
 import { ArenaIntro } from "@/components/arena-intro";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -64,8 +65,6 @@ const requestJson = async <T,>(url: string): Promise<T> => {
   return payload;
 };
 
-const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-
 const scoringLabel = (format: DraftDataResponse["configuration"]["scoringFormat"]) => ({
   "each-category": "H2H Each Category",
   "most-categories": "H2H Most Categories",
@@ -82,10 +81,10 @@ const draftStateKey = (leagueKey: string, season: number, draftMode: DraftMode) 
 
 const modeOrder: DraftCategoryMode[] = ["target", "balanced", "punt"];
 
-function PlayerIdentity({ player }: { player: DraftPlayer }) {
+function PlayerIdentity({ player, avatarSize = 32 }: { player: DraftPlayer; avatarSize?: number }) {
   return (
     <div className="player-cell draft-player-cell">
-      <span className="player-avatar">{initials(player.name)}</span>
+      <PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} size={avatarSize} />
       <span>
         <strong>{player.name}</strong>
         <small>{player.team} · {player.position}</small>
@@ -475,7 +474,7 @@ export function DraftAssistant() {
               <section className="draft-side-section">
                 <div className="draft-side-heading"><div><p className="eyebrow">Roster</p><h3>My team</h3></div><span>{myRoster.length} picks</span></div>
                 <div className="my-roster-list">
-                  {myRoster.map((player, index) => <div key={player.playerKey}><span>{index + 1}</span><PlayerIdentity player={player} /></div>)}
+                  {myRoster.map((player, index) => <div key={player.playerKey}><span>{index + 1}</span><PlayerIdentity player={player} avatarSize={26} /></div>)}
                   {!myRoster.length ? <p className="side-empty">No players selected.</p> : null}
                 </div>
               </section>
