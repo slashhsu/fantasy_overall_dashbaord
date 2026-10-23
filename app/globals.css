@@ -578,3 +578,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .update-notice { margin: 10px 2px; color: #acb2bd; font-size: 11px; }
 
 .refresh-button { white-space: nowrap; }
+
+.weekly-player-details { border-top: 1px solid var(--line); }
+.weekly-player-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 20px 22px; border: 0; background: #fff8ef; color: #91451b; text-align: left; font-weight: 750; }
+.weekly-player-content { background: #fff; }
+.weekly-player-period { padding: 12px 22px; font-size: 12px; color: #616b76; line-height: 1.7; overflow-wrap: anywhere; }
+.weekly-player-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 0 22px 14px; }
+.weekly-player-toolbar .tab-bar { background: #f3eee8; border-color: #e7ded5; margin: 0; }
+.weekly-player-toolbar .tab-bar button { color: #6b594d; }
+.weekly-player-toolbar .tab-bar button.active { color: #25150b; }
+.weekly-player-content .update-notice { color: #616b76; padding: 0 22px; }
+.weekly-player-table { min-width: 900px; }
+.weekly-player-table td:first-child, .weekly-player-table th:first-child { position: sticky; left: 0; background: #fff; z-index: 2; }
+.weekly-player-table th:first-child { background: #f7f5f1; z-index: 4; }
+.weekly-player-table .player-cell small { max-width: 230px; white-space: normal; overflow-wrap: anywhere; }

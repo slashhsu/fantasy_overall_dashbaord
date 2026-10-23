@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { POST as login } from "@/app/api/login/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
+import { GET as matchupPlayers } from "@/app/api/matchup-players/route";
 import { GET as draft } from "@/app/api/draft/route";
 
 describe("private dashboard API", () => {
@@ -8,6 +9,13 @@ describe("private dashboard API", () => {
     process.env.APP_PASSWORD = "test-password";
     process.env.SESSION_SECRET = "test-session-secret-that-is-long-enough";
     process.env.YAHOO_DEMO_MODE = "true";
+  });
+
+  it("protects player history and validates its requested matchup", async () => {
+    expect((await matchupPlayers(new Request("http://localhost/api/matchup-players?leagueKey=demo.l.101&week=19&matchupId=foreign"))).status).toBe(401);
+    const session = await login(new Request("http://localhost/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "test-password" }) }));
+    const cookie = session.headers.get("set-cookie") ?? "";
+    expect((await matchupPlayers(new Request("http://localhost/api/matchup-players?leagueKey=demo.l.101&week=19&matchupId=foreign", { headers: { cookie } }))).status).toBe(400);
   });
 
   it("sets a secure session and returns the dashboard response shape", async () => {

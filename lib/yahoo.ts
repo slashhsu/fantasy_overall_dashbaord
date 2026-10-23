@@ -239,7 +239,7 @@ export const fetchLeagueTeamStats = async (leagueKey: string) =>
 export const parseScoreboard = (xml: string, fallbackWeek: number): Matchup[] => {
   const root = parseXml(xml);
   return findAll(root, "matchup")
-    .map((matchup, index) => {
+    .map((matchup, index): Matchup | null => {
       const teams = directChildren(matchup, "teams", "team");
       if (teams.length < 2) return null;
       const teamA = parseTeam(teams[0]);
@@ -247,6 +247,8 @@ export const parseScoreboard = (xml: string, fallbackWeek: number): Matchup[] =>
       return {
         id: `${teamA.teamKey}::${teamB.teamKey}` || String(index),
         week: numeric(matchup.week, fallbackWeek),
+        startDate: textValue(matchup.week_start) || undefined,
+        endDate: textValue(matchup.week_end) || undefined,
         status: textValue(matchup.status, "unknown"),
         isPlayoffs: textValue(matchup.is_playoffs) === "1",
         isConsolation: textValue(matchup.is_consolation) === "1",

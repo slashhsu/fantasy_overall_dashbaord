@@ -1,5 +1,6 @@
 "use client";
 
+import { MatchupPlayerDetails } from "@/components/matchup-player-details";
 import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { ArenaIntro } from "@/components/arena-intro";
@@ -114,6 +115,7 @@ export function DashboardApp() {
   const [matchupId, setMatchupId] = useState("");
   const [teamKey, setTeamKey] = useState("");
   const [dashboardData, setDashboard] = useState<DashboardResponse | null>(null);
+  const [playerRefreshVersion, setPlayerRefreshVersion] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("recommendations");
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
@@ -361,7 +363,7 @@ export function DashboardApp() {
           </label>
 
           <RefreshControl status={dashboardData?.updateStatus} loading={loadingDashboard} disabled={!leagueKey}
-            onRefresh={() => void loadDashboard(true)} />
+            onRefresh={() => { setPlayerRefreshVersion((value) => value + 1); void loadDashboard(true); }} />
         </section>
 
         {error ? (
@@ -449,6 +451,7 @@ export function DashboardApp() {
             />
           ) : null}
           {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} /> : null}
+          {activeTab === "report" && leagueKey && (matchupId || dashboardData?.selectedMatchupId) ? <MatchupPlayerDetails ready={Boolean(dashboard)} leagueKey={leagueKey} week={week} matchupId={matchupId || dashboardData!.selectedMatchupId} selectedTeamKey={teamKey || dashboardData?.selectedTeamKey || ""} refreshVersion={playerRefreshVersion} /> : null}
           {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={(id) => { setActiveTab("report"); chooseMatchup(id); }} /> : null}
           {dashboard && activeTab === "raw" ? <RawDataView dashboard={dashboard} /> : null}
           {loadingDashboard && dashboard ? <div className="panel-loading"><RefreshCw size={16} className="animate-spin" /> Updating</div> : null}

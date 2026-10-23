@@ -163,3 +163,32 @@ Vercel instances do not share cache, queues, OAuth state or cooldowns, and resta
 reset them. No Redis or paid service is required. Start with one league (roughly
 10–20 participants), observe latency/errors and provider usage, then assess scale;
 the simulated concurrency tests do not establish a production user capacity.
+
+
+### Weekly player details
+
+Weekly Report includes a collapsed **球員當週數據** section. Expanding it requests
+`GET /api/matchup-players?leagueKey=...&week=...&matchupId=...`; it uses the same
+private session as the dashboard. `forceRefresh=true` uses the existing per-key
+60-second cooldown. Responses include the actual period, Pacific-time cutoff,
+team rosters, missing roster/stat dates, enabled categories and `updateStatus`.
+
+The roster is the union of everyone appearing on each team's daily rosters in
+the matchup period. Each athlete's numbers cover the **whole NBA week**, including
+bench days and days spent outside that fantasy team. A player may appear for both
+teams. These numbers are not the credited fantasy contributions and must not be
+summed to reconcile the team scoreboard.
+
+Dates come from Yahoo matchup boundaries or `/game/{gameKey}/game_weeks`; no live
+seven-day calendar is assumed. Current periods stop at today's Pacific date;
+future periods do not load player data. Daily player stats are batched in groups
+of 25 and cached independently, while daily roster data is shared by team/date.
+Only two producer tasks are scheduled at a time, in addition to the shared Yahoo
+request gate. Large historical periods can still take time on a cold cache.
+
+Counting stats use actual daily values; shooting percentages and assist/turnover
+ratios are recomputed from totals. Missing values remain missing (shown as `—`),
+while explicit GP=0 permits zero counting stats for no-appearance days. Missing
+roster dates mean the membership list itself may be incomplete. Partial and
+backup results are labeled; provider failures do not replace the category report.
+Demo mode uses explicitly labeled synthetic sample periods and player totals.

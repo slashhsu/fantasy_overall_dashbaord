@@ -65,6 +65,8 @@ export interface MatchupTeam {
 }
 
 export interface Matchup {
+  startDate?: string;
+  endDate?: string;
   id: string;
   week: number;
   status: string;
@@ -382,4 +384,27 @@ export interface ApiErrorPayload {
   details?: string;
   requestId?: string;
   upstreamStatus?: number;
+}
+
+export interface WeeklyPlayer {
+  playerKey: string;
+  name: string;
+  team: string;
+  position: string;
+  headshotUrl?: string;
+  stats: Record<string, number | null>;
+  missingDates: string[];
+}
+export interface MatchupPlayersResponse {
+  leagueKey: string;
+  matchupId: string;
+  week: number;
+  startDate: string;
+  endDate: string;
+  throughDate: string | null;
+  status: "complete" | "partial" | "not-started";
+  categories: LeagueCategory[];
+  teams: { teamKey: string; name: string; players: WeeklyPlayer[]; missingRosterDates: string[] }[];
+  updateStatus?: UpdateStatus;
+  demoMode: boolean;
 }
