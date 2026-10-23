@@ -194,7 +194,8 @@ backup results are labeled; provider failures do not replace the category report
 Demo mode uses explicitly labeled synthetic sample periods and player totals.
 
 Weekly detail tables retain observed totals even when another date is missing.
-Incomplete counting totals show `≥` (a known subtotal), while ratios computed from
+Incomplete counting totals show plain numbers with a section-level partial-data
+notice, while ratios computed from
 matching available numerator/denominator days show `*`. Entirely unknown values
 remain `—`. Missing dates are never silently treated as zero, and incomplete
 subtotals must not be interpreted as final weekly results.

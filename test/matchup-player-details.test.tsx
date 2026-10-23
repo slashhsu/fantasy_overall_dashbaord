@@ -14,7 +14,8 @@ describe("weekly player details", () => {
     expect(fetcher).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "球員當週數據" }));
     expect(await screen.findByText("Player One")).toBeInTheDocument();
-    expect(screen.getByText("≥20")).toBeInTheDocument();
+    expect(screen.getByText("20", { selector: "td" })).toBeInTheDocument();
+    expect(screen.queryByText(/≥/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Team B" }));
     expect(fetcher).toHaveBeenCalledTimes(1);
     rerender(<MatchupPlayerDetails {...props} refreshVersion={1} />);

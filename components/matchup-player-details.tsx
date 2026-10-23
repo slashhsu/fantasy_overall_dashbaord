@@ -69,14 +69,14 @@ function DetailsBody({ leagueKey, week, matchupId, selectedTeamKey, refreshVersi
     </div>
     <UpdateNotice status={data?.updateStatus} />
     {data?.status === "not-started" ? <p className="weekly-player-period">此週尚未開始，尚無球員數據。</p> : null}
-    {data?.status === "partial" ? <p className="inline-notice warning">資料不完整：仍顯示已取得的成績；「≥」是已取得的部分累計，「*」是部分日期的比率，「—」表示未取得數據。未將缺值補成零，球員名單也可能不完整。</p> : null}
+    {data?.status === "partial" ? <p className="inline-notice warning">資料不完整：數字為已取得日期的累計，尚不代表完整週數據；「*」是部分日期的比率，「—」表示未取得數據。未將缺值補成零，球員名單也可能不完整。</p> : null}
     {team?.missingRosterDates.length ? <p className="weekly-player-period">缺少陣容日期：{team.missingRosterDates.join(", ")}</p> : null}
     {team && data?.status !== "not-started" ? <div className="table-scroll">
       <table className="data-table weekly-player-table" aria-label={`${team.name} 球員週數據`}>
         <thead><tr><th><button className="sort-button" onClick={() => changeSort("name")}>Player</button></th><th>NBA</th><th>Position</th>{categories.map((category) => <th key={category.statId} aria-sort={sort.id === category.statId ? sort.ascending ? "ascending" : "descending" : "none"}><button className="sort-button" onClick={() => changeSort(category.statId)}>{category.displayName}{sort.id === category.statId ? sort.ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : null}</button></th>)}</tr></thead>
         <tbody>{players.map((player) => <tr key={player.playerKey}>
           <td><div className="player-cell"><PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} /><span><strong>{player.name}</strong>{player.missingDates.length ? <small>缺值日期：{player.missingDates.join(", ")}</small> : null}</span></div></td>
-          <td>{player.team || "—"}</td><td>{player.position || "—"}</td>{categories.map((category) => <td key={category.statId}>{player.stats[category.statId] != null && player.incompleteStats?.includes(category.statId) && !["5", "8", "11", "20"].includes(category.statId) ? "≥" : ""}{format(category.statId, player.stats[category.statId])}{player.stats[category.statId] != null && player.incompleteStats?.includes(category.statId) && ["5", "8", "11", "20"].includes(category.statId) ? "*" : ""}</td>)}
+          <td>{player.team || "—"}</td><td>{player.position || "—"}</td>{categories.map((category) => <td key={category.statId}>{format(category.statId, player.stats[category.statId])}{player.stats[category.statId] != null && player.incompleteStats?.includes(category.statId) && ["5", "8", "11", "20"].includes(category.statId) ? "*" : ""}</td>)}
         </tr>)}</tbody>
       </table>
       {!players.length ? <p className="weekly-player-period">此隊暫無可用球員資料。</p> : null}
