@@ -24,6 +24,19 @@ describe("actual weekly player stats", () => {
     const missing = aggregateWeeklyPlayer(meta, [date], new Map(), ["12"]);
     expect(missing.stats["12"]).toBeNull(); expect(missing.missingDates).toEqual([date]);
   });
+  it("preserves played-day values when other dates are missing, rather than erasing the entire week", () => {
+    const dates = ["2026-10-20", "2026-10-21", "2026-10-22"];
+    const data = new Map([[dates[1], new Map([[meta.playerKey, daily({ "0": 1, "12": 25, "3": 10, "4": 5 })]])]]);
+    const result = aggregateWeeklyPlayer(meta, dates, data, ["12", "5"]);
+    expect(result.stats).toEqual({ "0": 1, "12": 25, "5": 0.5 });
+    expect(result.incompleteStats).toEqual(["0", "12", "5"]);
+    expect(result.missingDates).toEqual([dates[0], dates[2]]);
+  });
+  it("only computes partial percentages from days with both shot components", () => {
+    const dates = ["2026-10-20", "2026-10-21"];
+    const data = new Map(dates.map((date, index) => [date, new Map([[meta.playerKey, daily(index ? { "0": 1, "4": 9, "3": null } : { "0": 1, "4": 5, "3": 10 })]])]));
+    expect(aggregateWeeklyPlayer(meta, dates, data, ["5"]).stats["5"]).toBe(0.5);
+  });
   it("parses stat IDs and rejects responses for the wrong date or period", () => {
     const xml = '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><coverage_type>date</coverage_type><date>2026-10-20</date><stats><stat><stat_id>12</stat_id><value>0</value></stat><stat><stat_id>5</stat_id><value>-</value></stat></stats></player_stats></player></players></fantasy_content>';
     expect(parseDailyPlayerStats(xml, "2026-10-20")[0].stats).toEqual({ "12": 0, "5": null });

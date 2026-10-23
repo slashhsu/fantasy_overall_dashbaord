@@ -48,7 +48,8 @@ describe("matchup player history", () => {
     const data = await getMatchupPlayers(options);
     expect(data.status).toBe("partial");
     expect(data.teams[0].missingRosterDates).toContain("2026-01-01");
-    expect(data.teams[0].players[0].stats["12"]).toBeNull();
+    expect(data.teams[0].players[0].stats["12"]).toBe(30);
+    expect(data.teams[0].players[0].incompleteStats).toContain("12");
   });
   it("uses Yahoo game weeks when scoreboard dates are absent", async () => {
     const scoreboard = (await fetchScoreboard("nba.l.1", 1))[0];

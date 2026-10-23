@@ -192,3 +192,9 @@ while explicit GP=0 permits zero counting stats for no-appearance days. Missing
 roster dates mean the membership list itself may be incomplete. Partial and
 backup results are labeled; provider failures do not replace the category report.
 Demo mode uses explicitly labeled synthetic sample periods and player totals.
+
+Weekly detail tables retain observed totals even when another date is missing.
+Incomplete counting totals show `≥` (a known subtotal), while ratios computed from
+matching available numerator/denominator days show `*`. Entirely unknown values
+remain `—`. Missing dates are never silently treated as zero, and incomplete
+subtotals must not be interpreted as final weekly results.

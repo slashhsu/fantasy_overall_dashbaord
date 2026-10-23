@@ -39,22 +39,31 @@ export function aggregateWeeklyPlayer(metadata: Omit<DailyPlayer, "stats">, date
     const stats = daily.get(date)?.get(metadata.playerKey)?.stats;
     return !stats || required.some((id) => stats[id] == null && !(stats["0"] === 0 && additive.has(id)));
   });
-  const sums: Record<string, number | null> = {};
-  for (const id of additive) {
-    const values = dates.map((date) => {
-      const stats = daily.get(date)?.get(metadata.playerKey)?.stats;
-      // Explicit GP=0 establishes a no-appearance day for counting stats only.
-      return stats?.[id] ?? (stats?.["0"] === 0 ? 0 : null);
-    });
-    sums[id] = values.some((value) => value === null) ? null : values.reduce<number>((total, value) => total + (value ?? 0), 0);
-  }
+  const valueOn = (date: string, id: string): number | null => {
+    const stats = daily.get(date)?.get(metadata.playerKey)?.stats;
+    return stats?.[id] ?? (stats?.["0"] === 0 && additive.has(id) ? 0 : null);
+  };
   const stats: WeeklyPlayer["stats"] = {};
+  const incompleteStats: string[] = [];
   for (const id of new Set(["0", ...statIds])) {
     const ratio = ratios[id];
     if (ratio) {
-      const [made, attempted] = ratio.map((part) => sums[part]);
-      stats[id] = made !== null && attempted !== null && attempted > 0 ? made / attempted : null;
-    } else stats[id] = sums[id] ?? null;
+      // Use matching days for numerator and denominator, never mismatched partial totals.
+      const pairs = dates.map((date) => ratio.map((part) => valueOn(date, part)));
+      const known = pairs.filter((pair): pair is [number, number] => pair[0] !== null && pair[1] !== null);
+      if (known.length < dates.length) incompleteStats.push(id);
+      const made = known.reduce((sum, pair) => sum + pair[0], 0);
+      const attempts = known.reduce((sum, pair) => sum + pair[1], 0);
+      stats[id] = attempts > 0 ? made / attempts : null;
+    } else if (additive.has(id)) {
+      const values = dates.map((date) => valueOn(date, id));
+      const known = values.filter((value): value is number => value !== null);
+      if (known.length < dates.length) incompleteStats.push(id);
+      stats[id] = known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+    } else {
+      stats[id] = null;
+      incompleteStats.push(id);
+    }
   }
-  return { ...metadata, stats, missingDates };
+  return { ...metadata, stats, missingDates, incompleteStats };
 }

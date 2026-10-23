@@ -394,6 +394,7 @@ export interface WeeklyPlayer {
   headshotUrl?: string;
   stats: Record<string, number | null>;
   missingDates: string[];
+  incompleteStats?: string[];
 }
 export interface MatchupPlayersResponse {
   leagueKey: string;
