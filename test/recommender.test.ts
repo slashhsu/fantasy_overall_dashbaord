@@ -12,15 +12,15 @@ describe("recommender parity", () => {
     expect(Number.isNaN(toNumber("--"))).toBe(true);
   });
 
-  it("assigns the Python priority weights to close losses, draws, and close wins", () => {
+  it("assigns residual-variance priority weights to losses, draws, and close wins", () => {
     const matchup = getDemoMatchups("demo.l.101", 19)[0];
     const needs = evaluateMatchup(matchup.teamA, matchup.teamB, demoCategories);
     const assists = needs.find((row) => row.category === "Assists");
     const steals = needs.find((row) => row.category === "Steals");
     expect(assists?.side).toBe("Lose");
-    expect(assists?.priorityWeight).toBe(4);
+    expect(assists?.priorityWeight).toBe(2.75);
     expect(steals?.side).toBe("Win");
-    expect(steals?.priorityWeight).toBe(1.1);
+    expect(steals?.priorityWeight).toBe(0.35);
   });
 
   it("treats turnovers as lower-is-better", () => {

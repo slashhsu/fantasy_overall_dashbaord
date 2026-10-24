@@ -5,12 +5,15 @@ import { compactCategoryName, canonicalCategoryName, normalizeTeamAbbreviation, 
 import type {
   FreeAgent,
   DraftAnalysis,
+  DraftMode,
   DraftPlayer,
   DraftResult,
   LeagueCategory,
   LeagueConfiguration,
   LeagueScoringFormat,
   LeagueSummary,
+  LeagueTeamStats,
+  DataQualitySummary,
   Matchup,
   MatchupTeam,
   PlayerStatPeriod,
@@ -34,6 +37,15 @@ const scoringFormatFor = (value: string): LeagueScoringFormat => {
   if (normalized.startsWith("head")) return "each-category";
   if (normalized === "roto") return "rotisserie";
   if (normalized === "point" || normalized === "points") return "points";
+  return "unknown";
+};
+
+export const draftModeFor = (value: string): DraftMode => {
+  const normalized = value.trim().toLowerCase().replaceAll(/[^a-z]/g, "");
+  if (normalized.includes("auction") || normalized.includes("salarycap")) return "salary-cap";
+  if (normalized.includes("linear")) return "linear";
+  if (normalized.includes("offline")) return "offline";
+  if (normalized.includes("live") || normalized.includes("snake") || normalized.includes("standard")) return "snake";
   return "unknown";
 };
 
@@ -85,6 +97,13 @@ export const parseLeagueDiscovery = (gamesXml: string, teamsXml?: string): Leagu
     };
   });
 };
+
+export const parseLeagueTeams = (xml: string) => findAll(parseXml(xml), "team")
+  .map(parseTeamSummary)
+  .filter((team) => team.key);
+
+export const fetchLeagueTeams = async (leagueKey: string) =>
+  parseLeagueTeams(await fetchYahooXml(`/league/${leagueKey}/teams`));
 
 const fetchCurrentTeamForLeague = async (leagueKey: string) => {
   const xml = await fetchYahooXml(`/league/${leagueKey}/teams`);
@@ -160,13 +179,15 @@ export const parseLeagueConfiguration = (xml: string): LeagueConfiguration => {
   const root = parseXml(xml);
   const league = findAll(root, "league")[0] ?? root;
   const settings = findAll(root, "settings")[0] ?? root;
+  const draftType = textValue(settings.draft_type) || textValue(league.draft_type) || undefined;
   return {
     categories: parseLeagueSettings(xml),
     rosterPositions: parseRosterPositions(root),
     scoringFormat: scoringFormatFor(textValue(league.scoring_type)),
     teamCount: numeric(league.num_teams) || undefined,
     draftStatus: textValue(league.draft_status) || undefined,
-    draftType: textValue(settings.draft_type) || textValue(league.draft_type) || undefined,
+    draftType,
+    draftMode: draftModeFor(draftType ?? ""),
   };
 };
 
@@ -196,10 +217,29 @@ const parseTeam = (team: XmlNode): MatchupTeam => {
   };
 };
 
+export const parseLeagueTeamStats = (xml: string): LeagueTeamStats[] => findAll(parseXml(xml), "team")
+  .map((team) => {
+    const parsed = parseTeam(team);
+    const standings = objectValue(team.team_standings);
+    return {
+      teamKey: parsed.teamKey,
+      name: parsed.name,
+      rank: numeric(standings.rank) || undefined,
+      stats: parsed.stats,
+    };
+  })
+  .filter((team) => team.teamKey);
+
+export const fetchLeagueStandings = async (leagueKey: string) =>
+  parseLeagueTeamStats(await fetchYahooXml(`/league/${leagueKey}/standings`));
+
+export const fetchLeagueTeamStats = async (leagueKey: string) =>
+  parseLeagueTeamStats(await fetchYahooXml(`/league/${leagueKey}/teams;out=stats`));
+
 export const parseScoreboard = (xml: string, fallbackWeek: number): Matchup[] => {
   const root = parseXml(xml);
   return findAll(root, "matchup")
-    .map((matchup, index) => {
+    .map((matchup, index): Matchup | null => {
       const teams = directChildren(matchup, "teams", "team");
       if (teams.length < 2) return null;
       const teamA = parseTeam(teams[0]);
@@ -207,6 +247,8 @@ export const parseScoreboard = (xml: string, fallbackWeek: number): Matchup[] =>
       return {
         id: `${teamA.teamKey}::${teamB.teamKey}` || String(index),
         week: numeric(matchup.week, fallbackWeek),
+        startDate: textValue(matchup.week_start) || undefined,
+        endDate: textValue(matchup.week_end) || undefined,
         status: textValue(matchup.status, "unknown"),
         isPlayoffs: textValue(matchup.is_playoffs) === "1",
         isConsolation: textValue(matchup.is_consolation) === "1",
@@ -239,6 +281,7 @@ const parsePlayer = (player: XmlNode, period: FreeAgent["period"]): FreeAgent =>
   const selectedPosition = textValue(objectValue(player.selected_position).position) || undefined;
   return {
     playerKey: textValue(player.player_key),
+    playerId: textValue(player.player_id) || textValue(player.player_key).split(".p.")[1] || undefined,
     name: textValue(nameNode.full, "Unknown Player"),
     position: textValue(player.display_position, "--"),
     team: normalizeTeamAbbreviation(textValue(player.editorial_team_abbr, "FA")),
@@ -272,17 +315,42 @@ export const mergePlayerWindows = (players: FreeAgent[]): FreeAgent | undefined 
   if (!preferred) return undefined;
   const statWindows: Partial<Record<PlayerStatPeriod, Record<string, number>>> = {};
   for (const player of players) {
-    if (player.period !== "unavailable" && Object.keys(player.stats).length) {
+    if (player.period !== "unavailable" && (player.stats["Games Played (GP)"] ?? 0) > 0) {
       statWindows[player.period] = player.stats;
     }
   }
-  return { ...preferred, statWindows };
+  return Object.keys(statWindows).length ? { ...preferred, statWindows } : undefined;
 };
 
-export const fetchFreeAgents = async (leagueKey: string): Promise<FreeAgent[]> => {
+export interface FreeAgentPoolResult {
+  players: FreeAgent[];
+  dataQuality: DataQualitySummary;
+}
+
+const saneWindow = (stats: Record<string, number>) => {
+  const games = stats["Games Played (GP)"] ?? 0;
+  if (!(games > 0)) return false;
+  const limits: Record<string, number> = {
+    "Points Scored": 80,
+    "Total Rebounds": 40,
+    Assists: 30,
+    Steals: 10,
+    "Blocked Shots": 10,
+    "3-point Shots Made": 20,
+    Turnovers: 15,
+  };
+  return Object.entries(limits).every(([name, limit]) => {
+    const value = stats[name];
+    return value === undefined || (Number.isFinite(value) && value >= 0 && value / games <= limit);
+  });
+};
+
+export const fetchFreeAgentPool = async (leagueKey: string): Promise<FreeAgentPoolResult> => {
   const { freeAgentLimit } = getRuntimeConfig();
   const allPlayers = new Map<string, FreeAgent>();
   const gameKey = leagueKey.split(".l.")[0] ?? "";
+  const failedWindows = new Set<PlayerStatPeriod>();
+  let invalidWindows = 0;
 
   for (let start = 0; start < freeAgentLimit; start += 25) {
     const metadata = parseFreeAgentPage(
@@ -300,6 +368,9 @@ export const fetchFreeAgents = async (leagueKey: string): Promise<FreeAgent[]> =
       (response): response is PromiseFulfilledResult<{ period: (typeof PERIODS)[number]; xml: string }> =>
         response.status === "fulfilled",
     );
+    responses.forEach((response, index) => {
+      if (response.status === "rejected") failedWindows.add(PERIODS[index]);
+    });
     if (!successful.length) {
       responses = await Promise.allSettled(
         PERIODS.map(async (period) => ({ period, xml: await fetchYahooXml(
@@ -310,15 +381,17 @@ export const fetchFreeAgents = async (leagueKey: string): Promise<FreeAgent[]> =
         (response): response is PromiseFulfilledResult<{ period: (typeof PERIODS)[number]; xml: string }> =>
           response.status === "fulfilled",
       );
-    }
-    if (!successful.length) {
-      const failure = responses.find((response) => response.status === "rejected") as PromiseRejectedResult | undefined;
-      throw failure?.reason ?? new Error("Yahoo returned no free-agent data.");
+      responses.forEach((response, index) => {
+        if (response.status === "rejected") failedWindows.add(PERIODS[index]);
+      });
     }
 
     const pageByPeriod = successful.map(({ value }) => ({
       period: value.period,
-      players: parseFreeAgentPage(value.xml, value.period),
+      players: parseFreeAgentPage(value.xml, value.period).map((player) => {
+        if (!saneWindow(player.stats)) invalidWindows += 1;
+        return saneWindow(player.stats) ? player : { ...player, period: "unavailable" as const, stats: {}, statWindows: undefined };
+      }),
     }));
     const pageKeys = new Set(metadata.map((player) => player.playerKey));
 
@@ -328,9 +401,19 @@ export const fetchFreeAgents = async (leagueKey: string): Promise<FreeAgent[]> =
         .map(({ players }) => players.find((player) => player.playerKey === playerKey))
         .filter((player): player is FreeAgent => Boolean(player));
       const best = mergePlayerWindows(candidates);
-      if (best && playerMetadata && !allPlayers.has(playerKey)) {
+      if (playerMetadata && !allPlayers.has(playerKey)) {
         allPlayers.set(playerKey, {
-          ...best,
+          ...playerMetadata,
+          ...(best ? {
+            period: best.period,
+            stats: best.stats,
+            statWindows: best.statWindows,
+            projectionSource: "current-season" as const,
+          } : {
+            period: "unavailable" as const,
+            stats: {},
+            projectionSource: "market-only" as const,
+          }),
           name: playerMetadata.name,
           position: playerMetadata.position,
           team: playerMetadata.team,
@@ -345,8 +428,60 @@ export const fetchFreeAgents = async (leagueKey: string): Promise<FreeAgent[]> =
     if (metadata.length < 25) break;
   }
 
-  return [...allPlayers.values()].slice(0, freeAgentLimit);
+  let players = [...allPlayers.values()].slice(0, freeAgentLimit);
+  const currentUsable = players.filter((player) => player.projectionSource === "current-season").length;
+  let previousSeason: number | null = null;
+  if (players.length && currentUsable < 20) {
+    try {
+      const historyXml = await fetchYahooXml("/users;use_login=1/games");
+      const history = parseNbaGameHistory(historyXml);
+      const current = history.find((game) => game.gameKey === gameKey);
+      const previous = history.find((game) => game.season < (current?.season ?? Number.POSITIVE_INFINITY));
+      if (previous) {
+        const previousPlayers = await fetchDraftPages(
+          (start) => `/game/${previous.gameKey}/players;start=${start};count=25;sort=AR/stats;type=season`,
+        );
+        const previousById = new Map(previousPlayers.map((player) => [player.playerId, player]));
+        previousSeason = previous.season;
+        players = players.map((player) => {
+          if (player.projectionSource === "current-season") return { ...player, projectionSeason: current?.season ?? null };
+          const prior = previousById.get(player.playerId ?? "");
+          if (!prior || prior.gamesPlayed < 3 || !saneWindow(prior.stats)) return player;
+          return {
+            ...player,
+            period: "season" as const,
+            stats: prior.stats,
+            statWindows: { season: prior.stats },
+            projectionSource: "previous-season" as const,
+            projectionSeason: previous.season,
+          };
+        });
+      }
+    } catch {
+      // Market-only players remain visible when historical Yahoo data is unavailable.
+    }
+  }
+
+  const sources = new Set(players.map((player) => player.projectionSource ?? "market-only"));
+  const marketOnly = players.filter((player) => player.projectionSource === "market-only").length;
+  const warnings: string[] = [];
+  if (failedWindows.size) warnings.push(`Yahoo did not return ${[...failedWindows].join(", ")} statistics for every page.`);
+  if (invalidWindows) warnings.push(`${invalidWindows} invalid or zero-game stat windows were ignored.`);
+  if (previousSeason) warnings.push(`Previous-season ${previousSeason} statistics fill players without current-season samples.`);
+  if (marketOnly) warnings.push(`${marketOnly} players have market metadata but no valid category projection.`);
+  return {
+    players,
+    dataQuality: {
+      status: players.length === 0 ? "unavailable" : warnings.length ? "partial" : "complete",
+      projectionSource: sources.size > 1 ? "mixed" : (sources.values().next().value ?? "market-only"),
+      failedWindows: [...failedWindows],
+      warnings,
+      stale: false,
+    },
+  };
 };
+
+export const fetchFreeAgents = async (leagueKey: string) => (await fetchFreeAgentPool(leagueKey)).players;
 
 const playerIdFromKey = (playerKey: string) => playerKey.split(".p.")[1] ?? playerKey;
 
@@ -450,7 +585,7 @@ const mergeDraftProjection = (
   return market.map((player): DraftPlayer => {
     const projection = projections.get(player.playerId);
     const gamesPlayed = projection?.gamesPlayed ?? 0;
-    const hasProjection = gamesPlayed > 0;
+    const hasProjection = gamesPlayed > 0 && saneWindow(projection?.stats ?? {});
     return {
       ...player,
       yahooRank: player.yahooRank ?? projection?.yahooRank ?? null,
@@ -462,7 +597,7 @@ const mergeDraftProjection = (
   });
 };
 
-const usableProjectionCount = (players: DraftPlayer[]) => players.filter((player) => player.gamesPlayed >= 3).length;
+const usableProjectionCount = (players: DraftPlayer[]) => players.filter((player) => player.gamesPlayed >= 3 && saneWindow(player.stats)).length;
 
 export const fetchDraftPlayerPool = async (leagueKey: string) => {
   const currentGameKey = leagueKey.split(".l.")[0] ?? "";

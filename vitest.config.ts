@@ -13,6 +13,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: ["test/e2e/**", "node_modules/**"],
     environment: "jsdom",
     globals: true,
     setupFiles: [path.resolve(root, "test/setup.ts")],

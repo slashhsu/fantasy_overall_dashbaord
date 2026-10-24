@@ -1,0 +1,26 @@
+import { expect, test } from "@playwright/test";
+test("lazy weekly player tables, sorting, tabs and refresh", async ({ page }, info) => {
+  let detailRequests = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/matchup-players?")) detailRequests++; });
+  await page.goto("/login");
+  await page.getByLabel("Dashboard password").fill("local-preview-password");
+  await page.getByRole("button", { name: "Open dashboard" }).click();
+  await page.getByRole("button", { name: "Weekly Report", exact: true }).click();
+  await expect(page.locator(".report-table")).toBeVisible();
+  expect(detailRequests).toBe(0);
+  await page.getByRole("button", { name: "球員當週數據" }).click();
+  await expect(page.locator(".weekly-player-table tbody tr")).toHaveCount(2);
+  await expect(page.getByText(/球員加總不一定等於球隊週報比分/)).toBeVisible();
+  const before = detailRequests;
+  await page.getByRole("tab", { name: "Box Score Poets", exact: true }).click();
+  await expect(page.locator(".weekly-player-table")).toHaveAttribute("aria-label", "Box Score Poets 球員週數據");
+  expect(detailRequests).toBe(before);
+  await page.locator(".weekly-player-table").getByRole("button", { name: "PTS", exact: true }).click();
+  await page.locator(".weekly-player-content .table-scroll").evaluate((element) => { element.scrollLeft = 200; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: `/tmp/weekly-players-${info.project.name}.png`, fullPage: true });
+  await page.locator(".control-bar").getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect.poll(() => detailRequests).toBeGreaterThan(before);
+  await page.getByLabel("Weekly report week").selectOption("18");
+  await expect(page.locator(".weekly-player-period").first()).toContainText("Week 18");
+});
