@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { POST as login } from "@/app/api/login/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
 import { GET as matchupPlayers } from "@/app/api/matchup-players/route";
+import { GET as injuryAdvice } from "@/app/api/injury-advice/route";
+import { todayInTimeZone } from "@/lib/date-time";
 import { GET as draft } from "@/app/api/draft/route";
 
 describe("private dashboard API", () => {
@@ -9,6 +11,18 @@ describe("private dashboard API", () => {
     process.env.APP_PASSWORD = "test-password";
     process.env.SESSION_SECRET = "test-session-secret-that-is-long-enough";
     process.env.YAHOO_DEMO_MODE = "true";
+  });
+
+  it("authenticates injury advice, validates watch IDs and returns a demo source", async () => {
+    expect((await injuryAdvice(new Request("http://localhost/api/injury-advice"))).status).toBe(401);
+    const session = await login(new Request("http://localhost/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "test-password" }) }));
+    const headers = { cookie: session.headers.get("set-cookie") ?? "" };
+    const params = new URLSearchParams({ leagueKey: "demo.l.101", teamKey: "demo.l.101.t.1", week: "19", date: todayInTimeZone("America/Los_Angeles"), timeZone: "America/Los_Angeles" });
+    const response = await injuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { headers }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "complete", demoMode: true, opportunities: [expect.objectContaining({ benefiting: true })] });
+    params.set("watch", "invalid-id");
+    expect((await injuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { headers }))).status).toBe(400);
   });
 
   it("protects player history and validates its requested matchup", async () => {

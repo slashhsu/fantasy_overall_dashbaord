@@ -1,5 +1,6 @@
 "use client";
 
+import { InjuryAdvice } from "@/components/injury-advice";
 import { MatchupPlayerDetails } from "@/components/matchup-player-details";
 import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -441,6 +442,7 @@ export function DashboardApp() {
           {!loadingDashboard && !dashboard && !error ? (
             <EmptyState title="No dashboard data yet" detail="Choose a league to load its current matchup." />
           ) : null}
+          {dashboard && activeTab === "recommendations" ? <InjuryAdvice leagueKey={leagueKey} teamKey={dashboard.selectedTeamKey} week={week} date={targetDate} timeZone={timeZone} refreshVersion={playerRefreshVersion} /> : null}
           {dashboard && activeTab === "recommendations" ? (
             <RecommendationsView
               dashboard={dashboard}

@@ -14,7 +14,7 @@ test("login, timezone, refresh, confidence, and keyboard navigation", async ({ p
   await expect(timezone).toBeVisible();
   await timezone.selectOption("Asia/Taipei");
   await expect(timezone).toHaveValue("Asia/Taipei");
-  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.locator(".control-bar").getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.locator(".recommendation-table tbody tr").first()).toBeVisible();
   await page.locator(".confidence-popover summary").first().click();
   await expect(page.locator(".confidence-popover").first()).toContainText(/games|sample|Market/i);

@@ -199,3 +199,52 @@ notice, while ratios computed from
 matching available numerator/denominator days show `*`. Entirely unknown values
 remain `—`. Missing dates are never silently treated as zero, and incomplete
 subtotals must not be interpreted as final weekly results.
+
+### Injury opportunities and return reminders
+
+Recommendations now includes **傷病機會與復出提醒**, loaded only when its section
+enters the viewport. The authenticated read-only `/api/injury-advice` endpoint
+accepts `leagueKey`, `teamKey`, `week`, `date`, `timeZone`, optional `watch` (up to
+50 player keys), and optional `forceRefresh=true`. It validates league/team access
+through the existing dashboard service. Historical/future dates or non-current
+weeks do not receive today's injury advice.
+
+The service reuses free-agent pools, roster windows and recommendation scores.
+Taken-player metadata is paged for the current league (up to 1,000 players, with
+incomplete coverage explicitly flagged), so injuries on other managers' rosters
+are included. Stat windows are fetched only for injured/questionable or observed
+players; dated appearance checks cover the last seven days for watched players
+whose status cleared. All calls use the existing shared cache, 60-second forced
+refresh cooldown and two-slot Yahoo gate. Stats producers are sequential rather
+than creating a large queue. New injury requests do not block the recommendation
+response, although they still share the instance's Yahoo request budget.
+
+Rules are heuristic and not backtested:
+- `O`, `OUT`, `INJ`, `IL`, `IL+` indicate absence; `Q`, `GTD`, `DTD`, `D` are
+  observation-only. Unknown statuses are not treated as healthy.
+- Eligible available substitutes share an NBA team and an explicit eligible
+  position with the injured player. Already-owned players are excluded.
+- At least three games in the last seven days and a four-minute per-game increase
+  over the last month qualify as a recent rotation beneficiary. Existing matchup
+  recommendation scores remain unchanged and determine candidate ordering.
+- Season/month averages below 24 minutes filter out low-baseline injured players;
+  absent baseline evidence yields low-confidence observation candidates, never a
+  confirmed starter claim. A starter label requires a prior local observation of
+  at least 24 MPG while the Yahoo status was clear. Clear status does not prove an
+  entire stat window was medically healthy; cards state this limitation.
+- Clearing an injury flag yields only a possible-return message. Confirmed return
+  requires positive dated GP after the last injury observation date; same-day
+  appearances are inconclusive. A four-minute drop from the substitute's observed
+  last-week MPG, with at least three current last-week games, is shown separately
+  from merely anticipating a smaller role. Neither automatically means drop.
+
+Browser storage is scoped by league and selected fantasy team under
+`fantasy-injury:v1:<leagueKey>:<teamKey>`. Injury/substitute pairs are capped at 50
+and retained for 30 days, alongside at most 50 healthy-status minute observations.
+Only complete, fresh, non-stale snapshots update observations or produce return
+alerts. The substitute must still be on the selected roster, both athletes must
+still share the observed NBA team, and a dismissal applies to that injury episode.
+New episodes reset the dismissal. No credentials are stored. Another device,
+private browsing, blocked storage or clearing site data can lose these reminders.
+No external news feed, push notification, database or automatic roster action is
+introduced. Demo mode uses labeled fictional players and synthetic minute trends.
