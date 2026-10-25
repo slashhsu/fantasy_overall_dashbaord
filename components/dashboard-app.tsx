@@ -167,6 +167,8 @@ export function DashboardApp() {
         if (result.leagues[0]) {
           setLeagueKey(result.leagues[0].leagueKey);
           setWeek(result.leagues[0].currentWeek);
+        } else {
+          setError("No leagues are available for this login.");
         }
       })
       .catch(handleRequestError)

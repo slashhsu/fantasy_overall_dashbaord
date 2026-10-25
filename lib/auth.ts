@@ -19,40 +19,39 @@ export const safeEqual = (left: string, right: string) => {
   return timingSafeEqual(leftBuffer, rightBuffer);
 };
 
-export const createSessionToken = () => {
+export type SessionRole = "admin" | "member";
+export interface Session { version: 2; role: SessionRole; exp: number }
+
+export const createSessionToken = (role: SessionRole) => {
   const { sessionSecret } = getAuthConfig();
   const payload = encode(
-    JSON.stringify({ exp: Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS }),
+    JSON.stringify({ version: 2, role, exp: Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS }),
   );
   return `${payload}.${sign(payload, sessionSecret)}`;
 };
 
-export const verifySessionToken = (token: string | undefined) => {
-  if (!token) return false;
+export const readSessionToken = (token: string | undefined): Session | null => {
+  if (!token) return null;
   try {
-    const [payload, signature] = token.split(".");
-    if (!payload || !signature) return false;
-    const { sessionSecret } = getAuthConfig();
-    if (!safeEqual(signature, sign(payload, sessionSecret))) return false;
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
-      exp?: number;
-    };
-    return typeof parsed.exp === "number" && parsed.exp > Date.now() / 1000;
-  } catch {
-    return false;
-  }
+    const parts = token.split(".");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+    const [payload, signature] = parts;
+    const config = getAuthConfig();
+    if (!safeEqual(signature, sign(payload, config.sessionSecret))) return null;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<Session>;
+    if (parsed.version !== 2 || !["admin", "member"].includes(parsed.role ?? "") || typeof parsed.exp !== "number" || !Number.isFinite(parsed.exp) || parsed.exp <= Date.now() / 1000) return null;
+    if (parsed.role === "member" && !config.memberPassword) return null;
+    return { version: 2, role: parsed.role as SessionRole, exp: parsed.exp };
+  } catch { return null; }
 };
+export const verifySessionToken = (token: string | undefined) => readSessionToken(token) !== null;
 
-export const isRequestAuthenticated = (request: Request) => {
+export const getRequestSession = (request: Request): Session | null => {
   const rawCookie = request.headers.get("cookie") ?? "";
-  const token = rawCookie
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
-    ?.slice(SESSION_COOKIE.length + 1);
-  return verifySessionToken(token);
+  const token = rawCookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`))?.slice(SESSION_COOKIE.length + 1);
+  return readSessionToken(token);
 };
-
+export const isRequestAuthenticated = (request: Request) => getRequestSession(request) !== null;
 export const isPageAuthenticated = async () => {
   const cookieStore = await cookies();
   return verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value);

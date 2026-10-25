@@ -1,7 +1,8 @@
+import { canAccessLeague } from "@/lib/league-access";
 import { withUpdateStatus } from "@/lib/update-status";
 import { NextResponse } from "next/server";
-import { handleApiError, unauthorized } from "@/lib/api-response";
-import { isRequestAuthenticated } from "@/lib/auth";
+import { handleApiError, unauthorized, forbidden } from "@/lib/api-response";
+import { getRequestSession } from "@/lib/auth";
 import { getDashboard } from "@/lib/dashboard-service";
 import { requireIsoDate, requireTimeZone } from "@/lib/date-time";
 import { ValidationError } from "@/lib/errors";
@@ -11,7 +12,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  if (!isRequestAuthenticated(request)) return unauthorized();
+  const session = getRequestSession(request);
+  if (!session) return unauthorized();
   try {
     const url = new URL(request.url);
     const leagueKey = url.searchParams.get("leagueKey")?.trim() ?? "";
@@ -24,6 +26,7 @@ export async function GET(request: Request) {
     requireIsoDate(targetDate);
     requireTimeZone(timeZone);
 
+    if (!canAccessLeague(session, leagueKey)) return forbidden();
     const dashboard = await withUpdateStatus(() => getDashboard({
       leagueKey,
       week,

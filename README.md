@@ -248,3 +248,45 @@ New episodes reset the dismissal. No credentials are stored. Another device,
 private browsing, blocked storage or clearing site data can lose these reminders.
 No external news feed, push notification, database or automatic roster action is
 introduced. Demo mode uses labeled fictional players and synthetic minute trends.
+
+### Administrator and restricted member logins
+
+`APP_PASSWORD` is the administrator credential; that role can see every league
+available to the configured Yahoo account. Set `MEMBER_PASSWORD` to a different
+credential to enable a restricted login. `MEMBER_ALLOWED_LEAGUE_KEYS` is a
+comma-separated server-side allowlist; an empty list grants members no leagues.
+The requested production allowlist is `478.l.12355,478.l.45261` (fixed league IDs,
+so renaming either league does not change access). New-season league IDs must be
+reviewed and configured explicitly. Never commit actual passwords or expose them
+through `NEXT_PUBLIC_` variables. The example file contains placeholders only.
+
+For rollout, configure the two login credentials and the allowlist on the deployment
+platform, retain the independent `SESSION_SECRET`, and redeploy this branch. If the
+former shared password is now meant for members, move it to `MEMBER_PASSWORD` and
+replace `APP_PASSWORD` with the designated administrator credential **before**
+rollout; leaving the old shared credential in `APP_PASSWORD` keeps it an admin
+credential. Merely
+pushing code does not change production environment variables. Missing member
+credentials disable member login; identical admin/member credentials or malformed
+allowlist keys are configuration errors. Existing administrator-only deployments
+can continue operating with no member credential configured.
+
+Sessions use a signed version-2 payload with an explicit `admin` or `member` role.
+All old expiry-only sessions are invalid and everyone must log in again after
+rollout. HttpOnly, SameSite, Secure-in-production and the 14-day lifetime are
+unchanged. Removing the member credential disables existing member sessions;
+allowlist edits apply to existing sessions on their next request. `/api/session`
+reports the authenticated role without disclosing credentials.
+
+Every league data endpoint checks the role and requested league key before invoking
+its data loader or accessing league data caches: dashboard, draft, weekly player
+details and injury advice. Unauthenticated calls return 401; denied league calls
+return 403 with `FORBIDDEN`. `/api/leagues` filters each response for its requesting
+role without mutating the shared cached source list. Shared Yahoo/cache state
+never serves as proof that a user is authorized. The browser has no league
+permission authority, and the public Google verification file remains public.
+
+Role tests cover both requested league IDs, direct API bypass attempts, admin-first
+cache reuse, tampered/expired/old sessions, empty member allowlists, and distinct
+passwords. Desktop/mobile smoke tests use fixture credentials with a one-of-two
+synthetic league allowlist, including login, league switching and logout.

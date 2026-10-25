@@ -9,6 +9,11 @@ export const unauthorized = () =>
     headers: { "Cache-Control": "private, no-store" },
   });
 
+export const forbidden = () => NextResponse.json<ApiErrorPayload>(
+  { error: "You do not have access to this league.", code: "FORBIDDEN" },
+  { status: 403, headers: { "Cache-Control": "private, no-store" } },
+);
+
 export const handleApiError = (error: unknown) => {
   const requestId = crypto.randomUUID();
   console.error(JSON.stringify({

@@ -145,6 +145,7 @@ export function DraftAssistant() {
         if (!active) return;
         setLeagues(result.leagues);
         setLeagueKey(result.leagues[0]?.leagueKey ?? "");
+        if (!result.leagues.length) setError("No leagues are available for this login.");
       })
       .catch(handleError)
       .finally(() => active && setLoadingLeagues(false));

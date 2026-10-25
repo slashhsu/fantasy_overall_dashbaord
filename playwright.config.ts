@@ -20,7 +20,7 @@ export default defineConfig({
     { name: "mobile-chromium", use: { ...devices["Pixel 7"], ...localBrowser } },
   ],
   webServer: {
-    command: "APP_PASSWORD=local-preview-password SESSION_SECRET=local-preview-signing-secret-at-least-32-characters YAHOO_DEMO_MODE=true pnpm exec next dev --hostname 127.0.0.1 --port 3100",
+    command: "APP_PASSWORD=local-preview-password MEMBER_PASSWORD=local-preview-member-password MEMBER_ALLOWED_LEAGUE_KEYS=demo.l.101 SESSION_SECRET=local-preview-signing-secret-at-least-32-characters YAHOO_DEMO_MODE=true pnpm exec next dev --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100/login",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

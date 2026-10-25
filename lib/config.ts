@@ -22,6 +22,10 @@ export const getRuntimeConfig = () => ({
 
 export const getAuthConfig = () => {
   const appPassword = required("APP_PASSWORD");
+  const memberPassword = process.env.MEMBER_PASSWORD?.trim() || undefined;
+  if (memberPassword === appPassword) throw new ConfigurationError("Admin and member passwords must be different.");
+  const memberAllowedLeagueKeys = [...new Set((process.env.MEMBER_ALLOWED_LEAGUE_KEYS ?? "").split(",").map((key) => key.trim()).filter(Boolean))];
+  if (memberAllowedLeagueKeys.some((key) => !/^[a-zA-Z0-9-]+\.l\.\d+$/.test(key))) throw new ConfigurationError("MEMBER_ALLOWED_LEAGUE_KEYS contains an invalid league key.");
   const configuredSecret = process.env.SESSION_SECRET?.trim();
   const production = process.env.NODE_ENV === "production" && !isDemoMode();
   if (production && !configuredSecret) {
@@ -32,6 +36,8 @@ export const getAuthConfig = () => {
   }
   return {
     appPassword,
+    memberPassword,
+    memberAllowedLeagueKeys,
     sessionSecret: configuredSecret || appPassword,
   };
 };

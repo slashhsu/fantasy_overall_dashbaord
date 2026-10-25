@@ -20,7 +20,11 @@ export async function POST(request: Request) {
     try { body = (await request.json()) as { password?: unknown }; }
     catch { throw new ValidationError("Request body must be valid JSON."); }
     const password = typeof body.password === "string" ? body.password : "";
-    if (!safeEqual(password, getAuthConfig().appPassword)) {
+    const config = getAuthConfig();
+    const adminMatch = safeEqual(password, config.appPassword);
+    const memberMatch = config.memberPassword ? safeEqual(password, config.memberPassword) : false;
+    const role = adminMatch ? "admin" : memberMatch ? "member" : null;
+    if (!role) {
       const failed = await recordLoginFailure(request);
       return NextResponse.json(
         { error: "That password is not correct." },
@@ -35,7 +39,7 @@ export async function POST(request: Request) {
     }
     clearLoginFailures(request);
     const response = NextResponse.json({ authenticated: true }, { headers: { "Cache-Control": "private, no-store" } });
-    response.cookies.set(SESSION_COOKIE, createSessionToken(), sessionCookieOptions);
+    response.cookies.set(SESSION_COOKIE, createSessionToken(role), sessionCookieOptions);
     return response;
   } catch (error) {
     return handleApiError(error);
