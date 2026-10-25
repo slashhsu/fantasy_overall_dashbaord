@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@/lib/types";
+import type { Recommendation, UpdateStatus } from "@/lib/types";
 export interface InjuryPlayer {
   playerKey: string; name: string; team: string; position: string; headshotUrl?: string;
   status: string; statusKnown: boolean; weekGames: number | null; weekMinutes: number | null;
@@ -11,7 +11,7 @@ export interface InjuryBaseline {
 export type InjuryOpportunityReason = "rotation-gain" | "unconfirmed-absence" | "small-sample" | "limited-data";
 export interface InjuryOpportunity {
   id: string; injuredKey: string; beneficiaryKey: string; benefiting: boolean;
-  score: number; helps: string[]; minutesDelta: number;
+  score: number; scoreType?: Recommendation["scoreType"]; helps: string[]; minutesDelta: number;
   group: "featured" | "watch"; reason: InjuryOpportunityReason;
   relatedInjuries: InjuryBaseline[];
 }

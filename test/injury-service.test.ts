@@ -13,7 +13,7 @@ const options = { leagueKey: "nba.l.1", teamKey: "nba.l.1.t.1", week: 1, date: "
 const takenXml = '<fantasy_content><players><player><player_key>nba.p.1</player_key><name><full>Star</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position><status>O</status></player><player><player_key>nba.p.3</player_key><name><full>Owned Backup</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position></player></players></fantasy_content>';
 beforeEach(() => {
   vi.stubEnv("YAHOO_DEMO_MODE", "false"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-24T18:00:00Z")); resetCacheForTests();
-  vi.mocked(getDashboard).mockResolvedValue({ league: { gameKey: "nba", currentWeek: 1 }, recommendations: [{ playerKey: "nba.p.2", score: 10, reason: ["AST"] }] } as DashboardResponse);
+  vi.mocked(getDashboard).mockResolvedValue({ league: { gameKey: "nba", currentWeek: 1 }, recommendations: [{ playerKey: "nba.p.2", score: 10, scoreType: "expected-categories", reason: ["AST"] }] } as DashboardResponse);
   vi.mocked(fetchFreeAgentPool).mockResolvedValue({ players: [player("nba.p.2"), player("nba.p.3")], dataQuality: { status: "complete", projectionSource: "current-season", failedWindows: [], warnings: [], stale: false } });
   vi.mocked(fetchRoster).mockResolvedValue({ available: true, players: [player("nba.p.4")] });
   vi.mocked(fetchYahooXml).mockImplementation(async (path) => {
@@ -26,7 +26,7 @@ describe("injury advice source aggregation", () => {
   it("includes other managers' injured players and excludes already-owned candidates", async () => {
     const response = await getInjuryAdvice(options);
     expect(response.opportunities.map((item) => item.beneficiaryKey)).toEqual(["nba.p.2"]);
-    expect(response.opportunities[0]).toMatchObject({ benefiting: true, score: 10 });
+    expect(response.opportunities[0]).toMatchObject({ benefiting: true, score: 10, scoreType: "expected-categories" });
     expect(response.rosterKeys).toEqual(["nba.p.4"]);
     const count = vi.mocked(fetchYahooXml).mock.calls.length;
     await getInjuryAdvice(options);

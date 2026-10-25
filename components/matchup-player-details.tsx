@@ -1,4 +1,5 @@
 "use client";
+import { HelpTip, StatHelp } from "@/components/help-tip";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -57,7 +58,7 @@ function DetailsBody({ leagueKey, week, matchupId, selectedTeamKey, refreshVersi
   const changeSort = (id: string) => setSort((current) => ({ id, ascending: current.id === id ? !current.ascending : id === "name" }));
   const format = (id: string, value: number | null | undefined) => value == null ? "—" : ["5", "8", "11"].includes(id) ? `${(value * 100).toFixed(1)}%` : Number.isInteger(value) ? String(value) : value.toFixed(2);
   return <div id="weekly-player-content" className="weekly-player-content" aria-busy={loading}>
-    <p className="inline-notice">整週 NBA 成績，包含板凳與不在隊上期間的表現；球員加總不一定等於球隊週報比分。</p>
+    <p className="inline-notice"><HelpTip topic="weekly" />整週 NBA 成績，包含板凳與不在隊上期間的表現；球員加總不一定等於球隊週報比分。</p>
     {data ? <p className="weekly-player-period">Week {week} · {data.startDate} – {data.endDate} · 已統計至 {data.throughDate ?? "尚未開始"}（Yahoo 太平洋時間）{data.demoMode ? " · Demo 示範數據" : ""}</p> : null}
     {loading ? <p className="weekly-player-period" role="status">正在取得每日陣容與球員成績，首次載入可能較久…</p> : null}
     {error ? <p className="status-error" role="alert">{error}</p> : null}
@@ -69,14 +70,14 @@ function DetailsBody({ leagueKey, week, matchupId, selectedTeamKey, refreshVersi
     </div>
     <UpdateNotice status={data?.updateStatus} />
     {data?.status === "not-started" ? <p className="weekly-player-period">此週尚未開始，尚無球員數據。</p> : null}
-    {data?.status === "partial" ? <p className="inline-notice warning">資料不完整：數字為已取得日期的累計，尚不代表完整週數據；「*」是部分日期的比率，「—」表示未取得數據。未將缺值補成零，球員名單也可能不完整。</p> : null}
+    {data?.status === "partial" ? <p className="inline-notice warning">資料不完整：數字為已取得日期的累計，尚不代表完整週數據；「*」是部分日期的比率，「—」表示未取得數據。未將缺值補成零，球員名單也可能不完整。<HelpTip topic="missing" /></p> : null}
     {team?.missingRosterDates.length ? <p className="weekly-player-period">缺少陣容日期：{team.missingRosterDates.join(", ")}</p> : null}
     {team && data?.status !== "not-started" ? <div className="table-scroll">
       <table className="data-table weekly-player-table" aria-label={`${team.name} 球員週數據`}>
-        <thead><tr><th><button className="sort-button" onClick={() => changeSort("name")}>Player</button></th><th>NBA</th><th>Position</th>{categories.map((category) => <th key={category.statId} aria-sort={sort.id === category.statId ? sort.ascending ? "ascending" : "descending" : "none"}><button className="sort-button" onClick={() => changeSort(category.statId)}>{category.displayName}{sort.id === category.statId ? sort.ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : null}</button></th>)}</tr></thead>
+        <thead><tr><th><button className="sort-button" onClick={() => changeSort("name")}>Player</button><HelpTip topic="player" label="Player" /></th><th>NBA<HelpTip topic="player" /></th><th>Position<HelpTip topic="player" /></th>{categories.map((category) => <th key={category.statId} aria-sort={sort.id === category.statId ? sort.ascending ? "ascending" : "descending" : "none"}><button className="sort-button" onClick={() => changeSort(category.statId)}>{category.displayName}{sort.id === category.statId ? sort.ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : null}</button><StatHelp id={category.statId} name={category.displayName} context="weekly" /></th>)}</tr></thead>
         <tbody>{players.map((player) => <tr key={player.playerKey}>
-          <td><div className="player-cell"><PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} /><span><strong>{player.name}</strong>{player.missingDates.length ? <small>缺值日期：{player.missingDates.join(", ")}</small> : null}</span></div></td>
-          <td>{player.team || "—"}</td><td>{player.position || "—"}</td>{categories.map((category) => <td key={category.statId}>{format(category.statId, player.stats[category.statId])}{player.stats[category.statId] != null && player.incompleteStats?.includes(category.statId) && ["5", "8", "11", "20"].includes(category.statId) ? "*" : ""}</td>)}
+          <td><div className="player-cell"><PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} /><span><strong>{player.name}</strong>{player.missingDates.length ? <small>缺值日期：{player.missingDates.join(", ")}<HelpTip topic="missing" label={`${player.name} 缺值日期`} /></small> : null}</span></div></td>
+          <td>{player.team || "—"}</td><td>{player.position || "—"}</td>{categories.map((category) => <td key={category.statId}>{format(category.statId, player.stats[category.statId])}{player.stats[category.statId] != null && player.incompleteStats?.includes(category.statId) && ["5", "8", "11", "20"].includes(category.statId) ? <><span>*</span><HelpTip topic="missing" label={`${player.name} ${category.displayName} 部分比率`} /></> : ""}</td>)}
         </tr>)}</tbody>
       </table>
       {!players.length ? <p className="weekly-player-period">此隊暫無可用球員資料。</p> : null}

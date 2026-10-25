@@ -31,7 +31,7 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
         lastweek: { "Games Played (GP)": 3, "Minutes Played": recent * 3 }, lastmonth: { "Games Played (GP)": 10, "Minutes Played": baseline * 10 }, season: { "Games Played (GP)": 20, "Minutes Played": baseline * 20 },
       } });
     result.players = [injuryPlayer(player("demo.p.900001", "Demo Lead Guard", "O", 32, 32)), injuryPlayer(player("demo.p.900002", "Demo Backup Guard", "", 29, 19))];
-    Object.assign(result, findInjuryOpportunities(result.players, new Set(["demo.p.900002"]), new Map([["demo.p.900002", { score: dashboard.recommendations[0]?.score ?? 0, helps: ["AST", "STL"] }]])));
+    Object.assign(result, findInjuryOpportunities(result.players, new Set(["demo.p.900002"]), new Map([["demo.p.900002", { score: dashboard.recommendations[0]?.score ?? 0, scoreType: dashboard.recommendations[0]?.scoreType, helps: ["AST", "STL"] }]])));
     return result;
   }
   if (dashboard.updateStatus?.stale || dashboard.dataQuality?.stale || (dashboard.dataQuality && dashboard.dataQuality.status !== "complete")) result.status = "partial";
@@ -100,7 +100,7 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
       } catch { result.status = "partial"; }
     }
   }
-  const scores = new Map(dashboard.recommendations.map((player) => [player.playerKey, { score: player.score, helps: player.reason }]));
+  const scores = new Map(dashboard.recommendations.map((player) => [player.playerKey, { score: player.score, scoreType: player.scoreType, helps: player.reason }]));
   Object.assign(result, findInjuryOpportunities(result.players, new Set(pool.value.players.filter((player) => !metadata.value.players.some((taken) => taken.playerKey === player.playerKey) && !result.rosterKeys.includes(player.playerKey)).map((player) => player.playerKey)), scores, { points: dashboard.objective === "fantasy-points", limitedData: result.status !== "complete" }));
   if (result.status === "partial") result.warnings.push("部分來源不完整或使用備援資料；候選僅供觀察，不更新復出紀錄。");
   return result;

@@ -306,3 +306,20 @@ Role tests cover both requested league IDs, direct API bypass attempts, admin-fi
 cache reuse, tampered/expired/old sessions, empty member allowlists, and distinct
 passwords. Desktop/mobile smoke tests use fixture credentials with a one-of-two
 synthetic league allowlist, including login, league switching and logout.
+
+### Contextual help and the user guide
+
+Every workspace includes Traditional Chinese annotations via independent ⓘ buttons
+and an authenticated `/guide` page, linked from the intro and shared header.
+`lib/help-content.ts` is the shared glossary for both. The guide uses the same
+session validation as the dashboard; unauthenticated visitors return to `/login`.
+No help interaction calls Yahoo or a data API. See
+[the coverage matrix](docs/help-coverage.md) for fields and interpretation checks.
+
+Hints support pointer hover, keyboard focus, touch/click pinning, Escape, outside
+click and repeated-click dismissal. Portaled fixed-position panels avoid clipping
+by horizontally scrolling tables and stay within the viewport. Sort/select
+buttons and labels do not contain hint buttons. Existing per-player confidence
+panels retain their evidence. Unknown custom stats explicitly lack a dedicated
+definition. Injury responses optionally carry their existing recommendation
+`scoreType` so those hints also use the correct units; scoring is unchanged.

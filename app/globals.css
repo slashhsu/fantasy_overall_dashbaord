@@ -612,3 +612,37 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .injury-watchlist { margin: 16px 0; padding: 12px; border: 1px solid #e6d7c9; border-radius: 12px; }
 .injury-watchlist > summary { cursor: pointer; color: #765036; font-size: 14px; font-weight: 700; padding: 4px; }
 .injury-watchlist > summary:focus-visible { outline: 2px solid #da8044; outline-offset: 3px; }
+
+/* Help triggers stay independent from sort buttons, form labels and details summaries. */
+.help-anchor { display: inline-flex; vertical-align: middle; margin-inline-start: 5px; }
+.help-trigger { display: inline-flex; align-items: center; justify-content: center; width: 24px; min-width: 24px; height: 24px; padding: 0; border: 1px solid #c7b3a0; border-radius: 50%; background: #fff8ee; color: #805031; font: 600 15px/1 sans-serif; cursor: help; text-transform: none; letter-spacing: 0; }
+.help-trigger:hover, .help-trigger[aria-expanded="true"] { background: #ffe3c5; color: #4e2a12; }
+.help-trigger:focus-visible { outline: 2px solid #d66a27; outline-offset: 3px; }
+.help-tooltip { position: fixed; z-index: 10000; width: 330px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; box-sizing: border-box; padding: 15px 17px; background: #fffaf3; color: #3c3026; border: 1px solid #d9b898; border-radius: 12px; box-shadow: 0 12px 36px #10182038; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; text-align: left; }
+.help-tooltip strong { display: block; font-size: 14px; color: #663b20; }
+.help-tooltip p { margin: 6px 0 0; }
+.refresh-with-help { display: inline-flex; align-items: center; gap: 2px; }
+.control-label { display: flex; align-items: center; gap: 2px; }
+.data-table th .help-anchor { vertical-align: middle; }
+.data-table th .sort-button { display: inline-flex; }
+.guide-link { display: inline-block; margin-top: 12px; color: #ffb474; text-decoration: underline; text-underline-offset: 4px; font-size: 14px; }
+.guide-page { max-width: 1000px; padding-bottom: 64px; }
+.guide-intro { padding: 36px 0; }
+.guide-intro h1 { font-size: clamp(26px, 5vw, 40px); margin: 12px 0; color: #fff1e3; }
+.guide-intro > p:not(.eyebrow) { color: #d0c5bd; line-height: 1.9; }
+.guide-toc, .guide-section { background: #fffaf4; border: 1px solid #e3d6c8; border-radius: 16px; padding: 24px; margin: 18px 0; color: #3e352e; line-height: 1.9; overflow-wrap: anywhere; }
+.guide-toc { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.guide-toc h2 { flex-basis: 100%; }
+.guide-toc a, .guide-section a, .raw-help a { color: #95501d; text-decoration: underline; text-underline-offset: 3px; }
+.guide-section h2, .guide-toc h2 { font-size: 21px; font-weight: 750; margin-bottom: 12px; }
+.guide-section ol { list-style: decimal; padding-inline-start: 24px; }
+.guide-section li { margin-bottom: 8px; }
+.guide-section dl > div { padding: 14px 0; border-bottom: 1px solid #e9ddd0; }
+.guide-section dt { font-weight: 750; }
+.guide-section dd { margin: 6px 0 0; color: #665c53; }
+.guide-section small { color: #786d62; font-weight: 400; }
+.guide-section [id], .guide-section { scroll-margin-top: 100px; }
+.raw-help { padding: 16px 24px; color: #665c53; font-size: 13px; line-height: 1.8; }
+@media (max-width: 640px) { .help-trigger { width: 28px; min-width: 28px; height: 28px; } .guide-toc, .guide-section { padding: 18px; } }
+.reset-with-help { display: inline-flex; align-items: center; gap: 2px; }
+.control-bar > .refresh-with-help, .draft-control-bar > .refresh-with-help, .draft-control-bar > .reset-with-help { align-self: end; }

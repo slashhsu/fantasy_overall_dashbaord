@@ -10,7 +10,7 @@ const login = async (page: import("@playwright/test").Page) => {
 test("login, timezone, refresh, confidence, and keyboard navigation", async ({ page }) => {
   await login(page);
   await expect(page.getByRole("heading", { name: "Best available players" })).toBeVisible();
-  const timezone = page.getByLabel("Time zone");
+  const timezone = page.getByLabel("Time zone", { exact: true });
   await expect(timezone).toBeVisible();
   await timezone.selectOption("Asia/Taipei");
   await expect(timezone).toHaveValue("Asia/Taipei");
@@ -29,12 +29,12 @@ test("mock salary-cap flow records a team and winning bid", async ({ page }) => 
   await login(page);
   await page.goto("/draft");
   await expect(page.getByRole("heading", { name: "Best picks now" })).toBeVisible();
-  await page.getByLabel("Draft mode").selectOption("salary-cap");
+  await page.getByLabel("Draft mode", { exact: true }).selectOption("salary-cap");
   await expect(page.getByLabel("Auction budget")).toHaveValue("200");
   await page.locator(".draft-row-actions button").first().click();
   const dialog = page.getByRole("dialog", { name: /Record/ });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel("Winning bid").fill("25");
+  await dialog.getByLabel("Winning bid", { exact: true }).fill("25");
   await dialog.getByRole("button", { name: "Record pick" }).click();
   await expect(page.locator(".draft-history-list")).toContainText("#1");
 });

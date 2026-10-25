@@ -45,7 +45,7 @@ export function importantBaseline(player: InjuryPlayer) {
   return null;
 }
 export function findInjuryOpportunities(
-  players: InjuryPlayer[], available: Set<string>, scores: Map<string, { score: number; helps: string[] }>,
+  players: InjuryPlayer[], available: Set<string>, scores: Map<string, { score: number; scoreType?: InjuryOpportunity["scoreType"]; helps: string[] }>,
   options: { points?: boolean; limitedData?: boolean } = {},
 ): { opportunities: InjuryOpportunity[]; watchlist: InjuryOpportunity[]; exclusionCounts: Record<string, number> } {
   const featured: InjuryOpportunity[] = [], watch: InjuryOpportunity[] = [];
@@ -73,7 +73,7 @@ export function findInjuryOpportunities(
       const group = benefiting && !options.limitedData ? "featured" : "watch";
       const reason = options.limitedData ? "limited-data" : injuryState(star.status) === "watch" ? "unconfirmed-absence" : !enoughGames ? "small-sample" : "rotation-gain";
       const item: InjuryOpportunity = { id: `${star.playerKey}:${player.playerKey}`, injuredKey: star.playerKey, beneficiaryKey: player.playerKey,
-        benefiting, score: score.score, helps: score.helps, minutesDelta: delta, group, reason, relatedInjuries: [baseline] };
+        benefiting, score: score.score, scoreType: score.scoreType, helps: score.helps, minutesDelta: delta, group, reason, relatedInjuries: [baseline] };
       (group === "featured" ? featured : watch).push(item);
     }
   }
