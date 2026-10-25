@@ -64,6 +64,9 @@ it("renders server groups, starts watching collapsed and removes old loose histo
   expect(details.open).toBe(false);
   fireEvent.click(screen.getByText("觀察名單（1）"));
   expect(details.open).toBe(true);
+  expect(container.querySelectorAll(".injury-card .help-trigger")).toHaveLength(0);
+  expect(container.querySelectorAll(".injury-toolbar .help-trigger")).toHaveLength(0);
+  expect(screen.getAllByRole("button", { name: "傷病推薦分數 說明" })).toHaveLength(1);
   expect(screen.getByText(/傷病觀察，尚未確認缺陣/)).toBeInTheDocument();
   expect(screen.getByText(/非已確認傷前健康期/)).toBeInTheDocument();
   expect(localStorage.getItem(oldKey)).toBeNull();

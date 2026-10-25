@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HelpTip, StatHelp } from "@/components/help-tip";
-import { HELP, scoreTopic, statDescription } from "@/lib/help-content";
+import { HelpTip } from "@/components/help-tip";
+import { HELP, HELP_USAGE, MODEL_HELP_KEYS, STAT_DEFINITIONS, scoreHelpFor, scoreTopic } from "@/lib/help-content";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("shared contextual help", () => {
   it("opens on hover, is portaled outside a clipping table, and stays open when entering its content", async () => {
@@ -33,22 +33,28 @@ describe("shared contextual help", () => {
     expect(choose.mock.calls.every(([event]) => event.key === "Escape")).toBe(true);
   });
   it("closes on blur and cleans up the portal on unmount", async () => {
-    const { unmount } = render(<><HelpTip topic="refresh" /><button>Next</button></>);
-    act(() => screen.getByRole("button", { name: /Refresh.*說明/ }).focus());
+    const { unmount } = render(<><HelpTip topic="lineup" /><button>Next</button></>);
+    act(() => screen.getByRole("button", { name: /Lineup.*說明/ }).focus());
     act(() => screen.getByText("Next").focus());
     await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: /Refresh.*說明/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Lineup.*說明/ }));
     unmount(); expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
-  it("distinguishes projection, actual totals, ratio units and unknown custom stats", () => {
+  it("keeps basic definitions in the guide and distinguishes homogeneous and mixed model units", () => {
     expect(scoreTopic("matchup-probability")).toBe("probability");
     expect(scoreTopic("expected-categories")).toBe("expectedCategories");
     expect(scoreTopic("fantasy-points")).toBe("netFp"); expect(scoreTopic("roto-points")).toBe("rotoGain");
-    expect(statDescription("20", "A/T", "weekly")).toContain("沒有 % 單位");
-    expect(statDescription("12", "PTS", "projection")).toContain("單場預估");
-    render(<StatHelp id="999" name="Custom stat" context="matchup" />);
-    fireEvent.click(screen.getByRole("button", { name: "Custom stat 說明" }));
-    expect(screen.getByRole("tooltip")).toHaveTextContent("缺少專屬定義");
-    expect(screen.getByRole("tooltip")).toHaveTextContent("不推測計算公式");
+    expect(STAT_DEFINITIONS["20"][1]).toContain("沒有 % 單位");
+    expect(HELP_USAGE.stats).toBe("guide-only");
+    expect(HELP_USAGE.league).toBe("guide-only");
+    expect(HELP_USAGE.refresh).toBe("guide-only");
+    expect(HELP_USAGE.adp).toBe("guide-only");
+    expect(HELP_USAGE.aav).toBe("guide-only");
+    expect(MODEL_HELP_KEYS).toContain("priority");
+    expect(MODEL_HELP_KEYS).toContain("categoryProfile");
+    expect(scoreHelpFor([{ scoreType: "expected-categories" }, { scoreType: "expected-categories" }])).toEqual({ topic: "expectedCategories", mixed: false });
+    expect(scoreHelpFor([{ scoreType: "matchup-probability" }, { scoreType: "expected-categories" }])).toEqual({ topic: "swing", mixed: true });
+    expect(scoreHelpFor([{ scoreType: "legacy-z-score" }, { scoreType: "blended-z-score" }])).toEqual({ topic: "categoryFit", mixed: false });
+    expect(scoreHelpFor([])).toEqual({ topic: "swing", mixed: false });
   });
 });

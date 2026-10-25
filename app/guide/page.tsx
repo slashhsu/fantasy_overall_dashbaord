@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { isPageAuthenticated } from "@/lib/auth";
-import { HELP, STAT_DEFINITIONS } from "@/lib/help-content";
+import { HELP, HELP_USAGE, type HelpKey, STAT_DEFINITIONS } from "@/lib/help-content";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "使用說明書 | Fantasy Basketball Desk" };
@@ -12,7 +12,7 @@ export default async function GuidePage() {
   return <main className="min-h-screen" lang="zh-Hant">
     <AppHeader />
     <article className="guide-page workspace-shell">
-      <header className="guide-intro"><p className="eyebrow">Fantasy Basketball Desk / Guide</p><h1>使用說明書</h1><p>先看資料口徑，再判讀數字。各頁的 ⓘ 可用滑鼠移入、鍵盤聚焦或手機點擊查看；Escape、再次點擊或點擊外部可關閉。</p><Link href="/" className="guide-link">← 返回儀表板</Link></header>
+      <header className="guide-intro"><p className="eyebrow">Fantasy Basketball Desk / Guide</p><h1>使用說明書</h1><p>先看資料口徑，再判讀數字。畫面僅在模型分數、推估與判斷規則旁提供 ⓘ；基礎數據、一般操作與資料狀態集中在本說明書。ⓘ 可用滑鼠移入、鍵盤聚焦或手機點擊查看；Escape、再次點擊或點擊外部可關閉。</p><Link href="/" className="guide-link">← 返回儀表板</Link></header>
       <nav className="guide-toc" aria-label="說明書目錄"><h2>目錄</h2><a href="#start">快速開始與各頁操作</a>{groups.map((group, index) => <a key={group} href={`#section-${index}`}>{group}</a>)}<a href="#stat-glossary">統計分類詞彙</a><a href="#faq">常見問題</a></nav>
       <section id="start" className="guide-section"><h2>快速開始與各頁操作</h2><ol>
         <li>選擇獲授權的聯盟、週次、目標日期及時區。日期與週次是不同控制項，查看推薦時請確認兩者符合需求。</li>
@@ -22,7 +22,7 @@ export default async function GuidePage() {
         <li>傷病區分精選與觀察，復出提醒需要本瀏覽器先前紀錄；所有建議需自行評估，不自動加人或丟人。</li>
         <li>Draft Assistant 先確認選秀模式、順位、隊數及是否同步 Yahoo。Mock mode 的 Draft／Taken、Reset／Undo 只操作本站模擬紀錄；同步模式不接受手動選人。</li>
       </ol><p>實際數據與預估數據不可混用：週報是 Fantasy 隊伍比分，球員明細是整週 NBA 實績，推薦表則是模型預估，三者不一定能直接相加或互相比較。</p></section>
-      {groups.map((group, index) => <section className="guide-section" id={`section-${index}`} key={group}><h2>{group}</h2><dl>{Object.entries(HELP).filter(([, entry]) => entry[0] === group).map(([key, entry]) => <div id={key} key={key}><dt>{entry[1]}</dt><dd>{entry[2]}</dd></div>)}</dl></section>)}
+      {groups.map((group, index) => <section className="guide-section" id={`section-${index}`} key={group}><h2>{group}</h2><dl>{Object.entries(HELP).filter(([, entry]) => entry[0] === group).map(([key, entry]) => <div id={key} key={key}><dt>{entry[1]} <small>{HELP_USAGE[key as HelpKey] === "model" ? "模型註釋" : "僅供說明書"}</small></dt><dd>{entry[2]}</dd></div>)}</dl></section>)}
       <section className="guide-section" id="stat-glossary"><h2>統計分類詞彙</h2><p>以下為支援辨識的 Yahoo NBA stat ID。實際啟用分類以聯盟設定為準；自訂或未知分類會顯示缺少專屬定義，不推測公式。推薦欄為單場估計、週明細為對戰期間累計，週報為 Fantasy 球隊比分。</p><dl>{Object.entries(STAT_DEFINITIONS).map(([id, entry]) => <div id={`stat-${id}`} key={id}><dt>{entry[0]} <small>Yahoo stat ID {id}</small></dt><dd>{entry[1]}</dd></div>)}</dl></section>
       <section className="guide-section" id="faq"><h2>常見問題</h2><dl>
         <div><dt>為什麼 Refresh 暫時不能按？</dt><dd>相同來源成功更新後有 60 秒冷卻；載入中也會暫停操作。等待倒數結束再更新，限流時依畫面提示重試。</dd></div>

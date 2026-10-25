@@ -1,6 +1,6 @@
 "use client";
-import { HelpTip, StatHelp } from "@/components/help-tip";
-import { scoreTopic } from "@/lib/help-content";
+import { HelpTip } from "@/components/help-tip";
+import { scoreHelpFor, scoreTopic } from "@/lib/help-content";
 
 import { InjuryAdvice } from "@/components/injury-advice";
 import { MatchupPlayerDetails } from "@/components/matchup-player-details";
@@ -290,7 +290,7 @@ export function DashboardApp() {
         <ArenaIntro />
         <section className="control-bar" aria-label="Dashboard filters">
           <div className="control-group control-league">
-            <div className="control-label"><label htmlFor="dashboard-control-1">League</label><HelpTip topic="league" label="League" /></div>
+            <div className="control-label"><label htmlFor="dashboard-control-1">League</label></div>
             <span className="select-wrap">
               <select id="dashboard-control-1"
                 aria-label="League"
@@ -307,7 +307,7 @@ export function DashboardApp() {
           </div>
 
           <div className="control-group">
-            <span className="control-label">Week<HelpTip topic="week" label="Week" /></span>
+            <span className="control-label">Week</span>
             <div className="stepper" aria-label="Week selector">
               <button
                 type="button"
@@ -328,7 +328,7 @@ export function DashboardApp() {
           </div>
 
           <div className="control-group">
-            <div className="control-label"><label htmlFor="dashboard-control-2">Streaming date</label><HelpTip topic="date" label="Streaming date" /></div>
+            <div className="control-label"><label htmlFor="dashboard-control-2">Streaming date</label></div>
             <span className="date-wrap">
               <CalendarDays size={15} aria-hidden="true" />
               <input id="dashboard-control-2"
@@ -341,7 +341,7 @@ export function DashboardApp() {
           </div>
 
           <div className="control-group control-matchup">
-            <div className="control-label"><label htmlFor="dashboard-control-3">Matchup</label><HelpTip topic="matchup" label="Matchup" /></div>
+            <div className="control-label"><label htmlFor="dashboard-control-3">Matchup</label></div>
             <span className="select-wrap">
               <select id="dashboard-control-3"
                 aria-label="Matchup"
@@ -358,7 +358,7 @@ export function DashboardApp() {
           </div>
 
           <div className="control-group control-time-zone">
-            <div className="control-label"><label htmlFor="dashboard-control-4">Time zone</label><HelpTip topic="timezone" label="Time zone" /></div>
+            <div className="control-label"><label htmlFor="dashboard-control-4">Time zone</label></div>
             <span className="select-wrap">
               <select id="dashboard-control-4" aria-label="Time zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
                 {[...new Set([browserTimeZone(), "America/New_York", "America/Los_Angeles", "Europe/London", "Asia/Taipei", "Asia/Tokyo"])].map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
@@ -387,12 +387,12 @@ export function DashboardApp() {
             </p>
           </div>
           <div className="summary-metrics">
-            <div><span className="metric-value metric-win">{dashboard ? summary.wins : "--"}</span><span className="metric-label">Winning<HelpTip topic="winning" label="Winning" /></span></div>
-            <div><span className="metric-value metric-loss">{dashboard ? summary.losses : "--"}</span><span className="metric-label">Behind<HelpTip topic="winning" label="Behind" /></span></div>
+            <div><span className="metric-value metric-win">{dashboard ? summary.wins : "--"}</span><span className="metric-label">Winning</span></div>
+            <div><span className="metric-value metric-loss">{dashboard ? summary.losses : "--"}</span><span className="metric-label">Behind</span></div>
             <div><span className="metric-value metric-play">{dashboard ? summary.close : "--"}</span><span className="metric-label">In play<HelpTip topic="inPlay" label="In play" /></span></div>
-            <div><span className="metric-value">{dashboard?.recommendations.length ?? "--"}</span><span className="metric-label">Streams<HelpTip topic="streams" label="Streams" /></span></div>
+            <div><span className="metric-value">{dashboard?.recommendations.length ?? "--"}</span><span className="metric-label">Streams</span></div>
           </div>
-          <div className="summary-status"><HelpTip topic="cache" />
+          <div className="summary-status">
             {dashboard ? <CheckCircle2 size={16} className="summary-status-icon" /> : <Clock3 size={16} />}
             <span>{dashboard ? `${dashboard.updateStatus?.stale ? "Backup" : dashboard.cached ? "Cached" : "Live"} at ${formatUpdatedAt(dashboard.updateStatus?.fetchedAt ?? dashboard.generatedAt)}` : "Connecting"}</span>
           </div>
@@ -417,7 +417,7 @@ export function DashboardApp() {
             <div className="panel-heading weekly-report-filter-bar">
               <div className="weekly-report-controls">
                 <div className="control-group">
-                  <div className="control-label"><label htmlFor="dashboard-control-5">Week</label><HelpTip topic="week" label="Week" /></div>
+                  <div className="control-label"><label htmlFor="dashboard-control-5">Week</label></div>
                   <span className="select-wrap">
                     <select id="dashboard-control-5" aria-label="Weekly report week" value={week} onChange={(event) => chooseWeek(Number(event.target.value))}>
                       {Array.from({ length: selectedLeague.endWeek - selectedLeague.startWeek + 1 }, (_, index) => {
@@ -429,7 +429,7 @@ export function DashboardApp() {
                   </span>
                 </div>
                 <div className="control-group">
-                  <div className="control-label"><label htmlFor="dashboard-control-6">Your team</label><HelpTip topic="matchup" label="Your team" /></div>
+                  <div className="control-label"><label htmlFor="dashboard-control-6">Your team</label></div>
                   <span className="select-wrap">
                     <select id="dashboard-control-6" aria-label="Weekly report team" value={teamKey || dashboardData?.selectedTeamKey || selectedLeague.userTeam.key}
                       disabled={loadingDashboard || !reportTeams.length} onChange={(event) => { setTeamKey(event.target.value); setMatchupId(""); }}>
@@ -491,6 +491,7 @@ function SortButton({ label, column, active, direction, onSort }: {
 }
 
 function RecommendationsView({ dashboard, recommendations, sortKey, sortDirection, onSort }: RecommendationsViewProps) {
+  const scoreHelp = scoreHelpFor(recommendations);
   const scheduleAvailable = dashboard.schedule.status === "available";
   const scheduleUnverified = dashboard.schedule.status === "unverified";
   const gameDay = scheduleAvailable && dashboard.teamsPlaying.length > 0;
@@ -520,18 +521,19 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
         <div>
           <p className="eyebrow">Daily waiver board</p>
           <h2>Best available players</h2>
-          <p>{dashboard.freeAgentCount} available players analyzed by {dashboard.model.name}.<HelpTip topic="streams" /></p>
+          <p>{dashboard.freeAgentCount} available players analyzed by {dashboard.model.name}.</p>
         </div>
-        <div className="recommendation-statuses"><HelpTip topic="demo" /><HelpTip topic="game" />
+        <div className="recommendation-statuses">
           <details className="info-popover"><summary className={`model-status ${dashboard.model.selectionStatus}`}>{dashboard.model.version} · {modelStatusLabel}</summary><div>{dashboard.model.validationLabel ?? "2026REG single-season validation"}<br />{dashboard.model.backtestMessage}</div></details>
           <details className="info-popover"><summary className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}><CalendarDays size={15} /><span>{scheduleLabel}</span></summary><div>{dashboard.schedule.message ?? `Source: ${dashboard.schedule.source ?? "none"}`}</div></details>
         </div>
       </div>
+      <p className="inline-notice">以下為單場預估，非當週實績</p>
       {dashboard.dataQuality.status !== "complete" || dashboard.dataQuality.stale ? (
-        <div className="inline-notice warning"><AlertCircle size={15} />Yahoo data is {dashboard.dataQuality.stale ? "stale" : "partial"}. {dashboard.dataQuality.warnings.join(" ") || "Some stat windows were unavailable."}<HelpTip topic="partial" /></div>
+        <div className="inline-notice warning"><AlertCircle size={15} />Yahoo data is {dashboard.dataQuality.stale ? "stale" : "partial"}. {dashboard.dataQuality.warnings.join(" ") || "Some stat windows were unavailable."}</div>
       ) : null}
       {scheduleUnverified ? <div className="inline-notice warning"><CalendarDays size={15} />Game availability and lineup locks are unverified for this date.</div> : null}
-      {unsupported.length ? <div className="inline-notice warning"><AlertCircle size={15} /><HelpTip topic="partial" />Unsupported categories are excluded: {unsupported.map((category) => category.displayName).join(", ")}.</div> : null}
+      {unsupported.length ? <div className="inline-notice warning"><AlertCircle size={15} />Unsupported categories are excluded: {unsupported.map((category) => category.displayName).join(", ")}.</div> : null}
       {!dashboard.lineupAvailable && dashboard.lineupMessage ? (
         <div className="inline-notice">{dashboard.lineupMessage} Recommendations show full-game value.</div>
       ) : null}
@@ -542,17 +544,17 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
           <table className="data-table recommendation-table">
             <thead>
               <tr>
-                <th className="rank-column">#<HelpTip topic="rank" /></th>
-                <th aria-sort={ariaSort("name")}><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /><HelpTip topic="player" /></th>
-                <th aria-sort={ariaSort("team")}><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /><HelpTip topic="player" /></th>
-                <th>Game<HelpTip topic="game" /></th>
-                <th aria-sort={ariaSort("score")}><SortButton label={dashboard.objective === "fantasy-points" ? "Net FP" : dashboard.objective === "roto-points" ? "Roto gain" : "Swing"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /><HelpTip topic={dashboard.objective === "fantasy-points" ? "netFp" : dashboard.objective === "roto-points" ? "rotoGain" : "swing"} /></th>
+                <th className="rank-column">#</th>
+                <th aria-sort={ariaSort("name")}><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
+                <th aria-sort={ariaSort("team")}><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
+                <th>Game</th>
+                <th aria-sort={ariaSort("score")}><SortButton label={dashboard.objective === "fantasy-points" ? "Net FP" : dashboard.objective === "roto-points" ? "Roto gain" : "Swing"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /><HelpTip topic={scoreHelp.topic} label="推薦分數" /></th>
                 <th>Confidence<HelpTip topic="confidence" /></th>
                 <th className="lineup-column">Lineup<HelpTip topic="lineup" label="Lineup" /></th>
                 <th className="reason-column">Helps<HelpTip topic="helps" label="Helps" /></th>
                 <th className="reason-column">Watch<HelpTip topic="helps" label="Watch" /></th>
                 {(["pts", "reb", "ast", "stl", "blk", "threePm", "turnovers"] as const).map((key) => (
-                  <th key={key} aria-sort={ariaSort(key)}><SortButton label={{ pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", threePm: "3PM", turnovers: "TO" }[key]} column={key} active={sortKey === key} direction={sortDirection} onSort={onSort} /><StatHelp id={{ pts: "12", reb: "15", ast: "16", stl: "17", blk: "18", threePm: "10", turnovers: "19" }[key]} name={{ pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", threePm: "3PM", turnovers: "TO" }[key]} context="projection" /></th>
+                  <th key={key} aria-sort={ariaSort(key)}><SortButton label={{ pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", threePm: "3PM", turnovers: "TO" }[key]} column={key} active={sortKey === key} direction={sortDirection} onSort={onSort} /></th>
                 ))}
               </tr>
             </thead>
@@ -563,12 +565,12 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   <td>
                     <div className="player-cell">
                       <PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} />
-                      <span><strong>{player.name}</strong><small>{player.position} · {player.projectionBasis === "blended" ? "Blended form" : player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}<HelpTip topic="projections" /></small></span>
+                      <span><strong>{player.name}</strong><small>{player.position} · {player.projectionBasis === "blended" ? "Blended form" : player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}</small></span>
                     </div>
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
                   <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
-                  <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span><HelpTip topic={scoreTopic(player.scoreType)} label={`${player.name} 分數單位`} /></td>
+                  <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span>{scoreHelp.mixed ? <HelpTip topic={scoreTopic(player.scoreType)} label={`${player.name} 分數單位`} /> : null}</td>
                   <td><details className="info-popover confidence-popover"><summary className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence} {player.confidenceScore}</summary><div>{player.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></td>
                   <td className="lineup-column"><span className={`lineup-label ${player.lineupImpact.status}`}>{player.lineupImpact.label}</span></td>
                   <td className="reason-column"><div className="tag-list">{player.reason.length ? player.reason.map((reason) => <span className="help-tag" key={reason}>{reason}</span>) : <span className="dash">--</span>}</div></td>
@@ -599,11 +601,11 @@ function WeeklyReportView({ dashboard }: { dashboard: DashboardResponse }) {
       </div>
       <div className="table-scroll">
         <table className="data-table report-table">
-          <thead><tr><th>Category<HelpTip topic="stats" /></th><th>{dashboard.selectedTeamName}<HelpTip topic="teamWeekly" label="球隊週比分" /></th><th>{dashboard.opponentName}<HelpTip topic="teamWeekly" label="對手週比分" /></th><th>Result<HelpTip topic="scoreResult" /></th><th>Priority<HelpTip topic="priority" /></th><th>Direction<HelpTip topic="direction" /></th></tr></thead>
+          <thead><tr><th>Category</th><th>{dashboard.selectedTeamName}</th><th>{dashboard.opponentName}</th><th>Result<HelpTip topic="scoreResult" /></th><th>Priority<HelpTip topic="priority" /></th><th>Direction</th></tr></thead>
           <tbody>
             {dashboard.categoryNeeds.map((row) => (
               <tr key={row.statId}>
-                <td><strong>{row.displayName}</strong><StatHelp id={row.statId} name={row.displayName} context="matchup" /><small className="category-long-name">{row.category}</small></td>
+                <td><strong>{row.displayName}</strong><small className="category-long-name">{row.category}</small></td>
                 <td className="numeric-strong">{row.teamRawValue || "--"}</td>
                 <td>{row.opponentRawValue || "--"}</td>
                 <td><span className={`result-pill ${resultClass(row.side)}`}>{row.result}</span></td>
@@ -637,7 +639,7 @@ function MatchupsView({ dashboard, onChoose }: { dashboard: DashboardResponse; o
       </div>
       <div className="table-scroll">
         <table className="data-table matchup-table">
-          <thead><tr><th>Matchup<HelpTip topic="heatmap" /></th>{enabledCategories.map((category) => <th key={category.statId}>{category.displayName}<StatHelp id={category.statId} name={category.displayName} context="matchup" /></th>)}<th><HelpTip topic="matchup" label="View／Selected" /></th></tr></thead>
+          <thead><tr><th>Matchup</th>{enabledCategories.map((category) => <th key={category.statId}>{category.displayName}</th>)}<th></th></tr></thead>
           <tbody>
             {dashboard.matchups.map((matchup) => (
               <tr key={matchup.id} className={matchup.id === dashboard.selectedMatchupId ? "selected-row" : ""}>
@@ -667,7 +669,7 @@ function RawDataView({ dashboard }: { dashboard: DashboardResponse }) {
   return (
     <>
       <div className="panel-heading"><div><p className="eyebrow">Diagnostics</p><h2>Dashboard response</h2><p>Exact normalized data returned by the private server route.</p></div></div>
-      <div className="raw-help"><HelpTip topic="raw" /><p>league／week／targetDate／timeZone：查詢範圍；matchups／categoryNeeds：週比分；recommendations：預估；schedule：賽程；dataQuality／model／updateStatus：來源與模型。<HelpTip topic="missing" /></p><a href="/guide#raw">查看原始資料說明</a></div><pre className="raw-data">{JSON.stringify(dashboard, null, 2)}</pre>
+      <div className="raw-help"><a href="/guide#raw">查看原始資料說明</a></div><pre className="raw-data">{JSON.stringify(dashboard, null, 2)}</pre>
     </>
   );
 }

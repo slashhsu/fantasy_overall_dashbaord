@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { HelpTip } from "@/components/help-tip";
 import { usePathname, useRouter } from "next/navigation";
 import { BookOpen, LayoutDashboard, ListOrdered, LogOut, Trophy } from "lucide-react";
 
@@ -34,7 +33,7 @@ export function AppHeader({ demoMode = false }: { demoMode?: boolean }) {
           <Link href="/guide" className={pathname === "/guide" ? "active" : ""} aria-label="使用說明書" aria-current={pathname === "/guide" ? "page" : undefined}><BookOpen size={14} /><span>說明書</span></Link>
         </nav>
         <div className="header-actions">
-          {demoMode ? <span className="demo-badge">Demo data<HelpTip topic="demo" /></span> : null}
+          {demoMode ? <span className="demo-badge">Demo data</span> : null}
           <button className="icon-button" onClick={logout} title="Sign out" aria-label="Sign out">
             <LogOut size={17} />
           </button>

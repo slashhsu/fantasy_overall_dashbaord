@@ -309,9 +309,15 @@ synthetic league allowlist, including login, league switching and logout.
 
 ### Contextual help and the user guide
 
-Every workspace includes Traditional Chinese annotations via independent ⓘ buttons
-and an authenticated `/guide` page, linked from the intro and shared header.
-`lib/help-content.ts` is the shared glossary for both. The guide uses the same
+Workspaces show Traditional Chinese ⓘ hints only for computed model scores,
+estimates and decision rules. Basic stats, Yahoo market data, ordinary controls,
+cache/refresh and missing-value definitions live only in the authenticated
+`/guide`, linked from the intro and shared header. Necessary warnings remain
+visible as text, and the recommendation table identifies its stats as per-game
+projections rather than actual weekly totals.
+`lib/help-content.ts` is the shared glossary for both. `HELP_USAGE` classifies
+model versus guide-only topics; `HelpTip` accepts only `ModelHelpKey` to prevent
+ordinary fields from acquiring icons again. The guide uses the same
 session validation as the dashboard; unauthenticated visitors return to `/login`.
 No help interaction calls Yahoo or a data API. See
 [the coverage matrix](docs/help-coverage.md) for fields and interpretation checks.
@@ -320,6 +326,7 @@ Hints support pointer hover, keyboard focus, touch/click pinning, Escape, outsid
 click and repeated-click dismissal. Portaled fixed-position panels avoid clipping
 by horizontally scrolling tables and stay within the viewport. Sort/select
 buttons and labels do not contain hint buttons. Existing per-player confidence
-panels retain their evidence. Unknown custom stats explicitly lack a dedicated
-definition. Injury responses optionally carry their existing recommendation
+panels retain their evidence. Homogeneous score units are explained once in the
+header, with per-player hints reserved for mixed units. Basic/custom stat
+definitions remain in the guide. Injury responses optionally carry their existing recommendation
 `scoreType` so those hints also use the correct units; scoring is unchanged.

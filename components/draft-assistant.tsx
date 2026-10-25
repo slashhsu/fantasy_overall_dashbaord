@@ -1,5 +1,5 @@
 "use client";
-import { HelpTip, StatHelp } from "@/components/help-tip";
+import { HelpTip } from "@/components/help-tip";
 
 import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -343,7 +343,7 @@ export function DraftAssistant() {
         <ArenaIntro draft />
         <section className="draft-control-bar" aria-label="Draft settings">
           <div className="control-group draft-league-control">
-            <div className="control-label"><label htmlFor="draft-control-1">League</label><HelpTip topic="league" label="League" /></div>
+            <div className="control-label"><label htmlFor="draft-control-1">League</label></div>
             <span className="select-wrap">
               <select id="draft-control-1" aria-label="League" value={leagueKey} onChange={(event) => { hydratedLeague.current = ""; setLeagueKey(event.target.value); setData(null); }} disabled={loadingLeagues}>
                 {leagues.map((league) => <option key={league.leagueKey} value={league.leagueKey}>{league.name}</option>)}
@@ -352,20 +352,20 @@ export function DraftAssistant() {
             </span>
           </div>
           <div className="control-group">
-            <div className="control-label"><label htmlFor="draft-control-2">Draft slot</label><HelpTip topic="draftSettings" label="Draft slot" /></div>
+            <div className="control-label"><label htmlFor="draft-control-2">Draft slot</label></div>
             <input id="draft-control-2" aria-label="Draft slot" className="draft-number-input" type="number" min={1} max={teamCount} value={draftSlot} onChange={(event) => setDraftSlot(Math.max(1, Math.min(teamCount, Number(event.target.value) || 1)))} />
           </div>
           <div className="control-group">
-            <div className="control-label"><label htmlFor="draft-control-3">Teams</label><HelpTip topic="draftSettings" label="Teams" /></div>
+            <div className="control-label"><label htmlFor="draft-control-3">Teams</label></div>
             <input id="draft-control-3" aria-label="Teams" className="draft-number-input" type="number" min={2} max={30} value={teamCount} onChange={(event) => setTeamCount(Math.max(2, Math.min(30, Number(event.target.value) || 10)))} />
           </div>
           <div className="control-group">
-            <div className="control-label"><label htmlFor="draft-control-4">Draft mode</label><HelpTip topic="draftMode" label="Draft mode" /></div>
+            <div className="control-label"><label htmlFor="draft-control-4">Draft mode</label></div>
             <span className="select-wrap"><select id="draft-control-4" aria-label="Draft mode" value={draftMode} disabled={syncYahooPicks} onChange={(event) => setDraftMode(event.target.value as DraftMode)}><option value="snake">Snake</option><option value="linear">Linear</option><option value="salary-cap">Salary Cap</option><option value="offline">Offline</option></select><ChevronDown size={15} /></span>
           </div>
-          {draftMode === "salary-cap" ? <div className="control-group"><div className="control-label"><label htmlFor="draft-control-5">Budget</label><HelpTip topic="draftSettings" label="Budget" /></div><input id="draft-control-5" aria-label="Auction budget" className="draft-number-input" type="number" min={20} max={1000} value={auctionBudget} onChange={(event) => setAuctionBudget(Math.max(20, Number(event.target.value) || 200))} /></div> : null}
+          {draftMode === "salary-cap" ? <div className="control-group"><div className="control-label"><label htmlFor="draft-control-5">Budget</label></div><input id="draft-control-5" aria-label="Auction budget" className="draft-number-input" type="number" min={20} max={1000} value={auctionBudget} onChange={(event) => setAuctionBudget(Math.max(20, Number(event.target.value) || 200))} /></div> : null}
           <div className="control-group">
-            <div className="control-label"><label htmlFor="draft-control-6">Yahoo board</label><HelpTip topic="draftMode" label="Yahoo board" /></div>
+            <div className="control-label"><label htmlFor="draft-control-6">Yahoo board</label></div>
             <span className="draft-toggle-row">
               <input id="draft-control-6" aria-label="Yahoo board synchronization" type="checkbox" checked={syncYahooPicks} onChange={(event) => { const checked = event.target.checked; setSyncYahooPicks(checked); if (checked && data?.draftMode !== "unknown") setDraftMode(data?.draftMode ?? "snake"); }} />
               <span className="draft-toggle-visual" aria-hidden="true"><span /></span>
@@ -373,7 +373,7 @@ export function DraftAssistant() {
             </span>
           </div>
           <RefreshControl status={data?.league.leagueKey === leagueKey ? data.updateStatus : undefined} loading={loading} disabled={!leagueKey} onRefresh={() => void loadDraft(true)} />
-          <span className="reset-with-help"><button type="button" className="icon-command" onClick={resetDraft} title="Reset mock draft" aria-label="Reset mock draft" disabled={syncYahooPicks}><RotateCcw size={16} /></button><HelpTip topic="draftActions" /></span>
+          <button type="button" className="icon-command" onClick={resetDraft} title="Reset mock draft" aria-label="Reset mock draft" disabled={syncYahooPicks}><RotateCcw size={16} /></button>
         </section>
 
         <UpdateNotice status={data?.league.leagueKey === leagueKey ? data.updateStatus : undefined} />
@@ -390,18 +390,18 @@ export function DraftAssistant() {
             <h1>{data?.league.name ?? "Loading league"}</h1>
             <p>{data ? scoringLabel(data.configuration.scoringFormat) : "Reading Yahoo settings"}</p>
           </div>
-          <div className="draft-clock"><HelpTip topic="draftTurn" />
+          <div className="draft-clock">
             <span className={board?.picksUntilTurn === 0 ? "is-on-clock" : ""}><Clock3 size={16} /></span>
             <div><strong>{draftMode === "salary-cap" ? `$${Math.max(0, auctionBudget - userSpent)} left` : board?.picksUntilTurn === 0 ? "On the clock" : `${board?.picksUntilTurn ?? "--"} picks away`}</strong><small>{draftMode === "salary-cap" ? `$${userSpent} spent` : `Pick ${board?.nextUserPick ?? "--"}`}</small></div>
           </div>
           <div className="draft-summary-metrics">
-            <div><strong>{board?.currentPick ?? "--"}</strong><span>Overall pick<HelpTip topic="draftTurn" label="Overall pick" /></span></div>
-            <div><strong>{board?.round ?? "--"}</strong><span>Round<HelpTip topic="draftTurn" label="Round" /></span></div>
-            <div><strong>{myRoster.length}/{data?.configuration.rosterPositions.reduce((sum, item) => sum + item.count, 0) || "--"}</strong><span>My roster<HelpTip topic="draftTurn" label="My roster" /></span></div>
-            <div><strong>{data ? data.players.length - draftedKeys.length : "--"}</strong><span>Remaining<HelpTip topic="draftTurn" label="Remaining" /></span></div>
+            <div><strong>{board?.currentPick ?? "--"}</strong><span>Overall pick</span></div>
+            <div><strong>{board?.round ?? "--"}</strong><span>Round</span></div>
+            <div><strong>{myRoster.length}/{data?.configuration.rosterPositions.reduce((sum, item) => sum + item.count, 0) || "--"}</strong><span>My roster</span></div>
+            <div><strong>{data ? data.players.length - draftedKeys.length : "--"}</strong><span>Remaining</span></div>
           </div>
           <div className={`projection-source ${data?.projectionSource === "market-only" ? "is-market" : ""}`}>
-            <HelpTip topic="partial" /><HelpTip topic="cache" /><Check size={14} /><span>{data ? `${sourceLabel(data)} · ${data.sync.status}${data.sync.lastSuccessfulAt ? ` ${new Date(data.sync.lastSuccessfulAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}` : "Connecting"}</span>
+            <Check size={14} /><span>{data ? `${sourceLabel(data)} · ${data.sync.status}${data.sync.lastSuccessfulAt ? ` ${new Date(data.sync.lastSuccessfulAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}` : "Connecting"}</span>
           </div>
         </section>
 
@@ -418,10 +418,10 @@ export function DraftAssistant() {
               <div className="draft-board-toolbar">
                 <div>
                   <p className="eyebrow">Live ranking</p>
-                  <h2>Best picks now<HelpTip topic="draftScore" /></h2>
+                  <h2>Best picks now</h2>
                   <p>{data.model.name} · {data.model.version}</p>
                 </div>
-                <div className="draft-board-filters"><HelpTip topic="player" label="搜尋與位置篩選" /><HelpTip topic="rank" label="選秀排序" />
+                <div className="draft-board-filters">
                   <label className="draft-search"><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search players" aria-label="Search players" /></label>
                   <span className="compact-select"><select value={position} onChange={(event) => setPosition(event.target.value)} aria-label="Position"><option value="ALL">All positions</option>{["PG", "SG", "SF", "PF", "C"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={13} /></span>
                   <span className="compact-select"><select value={rankingSort} onChange={(event) => setRankingSort(event.target.value as RankingSort)} aria-label="Sort ranking"><option value="score">Draft score</option><option value="adp">Yahoo ADP</option><option value="fit">Team fit</option><option value="scarcity">Scarcity</option></select><ChevronDown size={13} /></span>
@@ -429,13 +429,13 @@ export function DraftAssistant() {
               </div>
               <div className="table-scroll draft-table-scroll">
                 <table className="data-table draft-table">
-                  <thead><tr><th>#<HelpTip topic="rank" label="#" /></th><th>Player<HelpTip topic="player" label="Player" /></th><th>ADP<HelpTip topic="adp" label="ADP" /></th><th>Score<HelpTip topic="draftScore" label="Score" /></th><th>Confidence<HelpTip topic="confidence" label="Confidence" /></th><th>Team fit<HelpTip topic="fit" label="Team fit" /></th><th>Scarcity<HelpTip topic="scarcity" label="Scarcity" /></th>{draftMode === "salary-cap" ? <><th>AAV<HelpTip topic="aav" label="AAV" /></th><th>Price<HelpTip topic="price" label="Price" /></th><th>Value<HelpTip topic="price" label="Value" /></th><th>Max bid<HelpTip topic="price" label="Max bid" /></th></> : <th>Estimated return<HelpTip topic="estimatedReturn" label="Estimated return" /></th>}<th>Slot<HelpTip topic="draftSlot" label="Slot" /></th><th>Why<HelpTip topic="draftSlot" label="Why" /></th><th>Pick<HelpTip topic="draftSlot" label="Pick" /></th></tr></thead>
+                  <thead><tr><th>#</th><th>Player</th><th>ADP</th><th>Score<HelpTip topic="draftScore" label="Score" /></th><th>Confidence<HelpTip topic="confidence" label="Confidence" /></th><th>Team fit<HelpTip topic="fit" label="Team fit" /></th><th>Scarcity<HelpTip topic="scarcity" label="Scarcity" /></th>{draftMode === "salary-cap" ? <><th>AAV</th><th>Price<HelpTip topic="price" label="Price" /></th><th>Value<HelpTip topic="price" label="Value" /></th><th>Max bid<HelpTip topic="price" label="Max bid" /></th></> : <th>Estimated return<HelpTip topic="estimatedReturn" label="Estimated return" /></th>}<th>Slot<HelpTip topic="modelSlot" label="Slot" /></th><th>Why<HelpTip topic="modelWhy" label="Why" /></th><th>Pick</th></tr></thead>
                   <tbody>
                     {rankings.map((ranking, index) => (
                       <tr key={ranking.player.playerKey} tabIndex={0} aria-selected={selectedRanking?.player.playerKey === ranking.player.playerKey} className={selectedRanking?.player.playerKey === ranking.player.playerKey ? "selected-draft-row" : ""} onClick={() => setSelectedPlayerKey(ranking.player.playerKey)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedPlayerKey(ranking.player.playerKey); } }}>
                         <td><span className={`rank-number ${index < 3 ? "top" : ""}`}>{index + 1}</span></td>
                         <td><PlayerIdentity player={ranking.player} /></td>
-                        <td className="numeric-strong">{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? ranking.player.yahooRank ?? "--"}{ranking.player.draftAnalysis.averagePick === null && ranking.player.yahooRank !== null ? <HelpTip topic="adp" label={`${ranking.player.name} Yahoo rank 代理`} text="此值為 Yahoo rank 代理，因缺少 ADP；不是市場平均被選順位。" /> : null}</td>
+                        <td className="numeric-strong">{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? ranking.player.yahooRank ?? "--"}{ranking.player.draftAnalysis.averagePick === null && ranking.player.yahooRank !== null ? <small className="adp-proxy">Yahoo rank 代理，非 ADP</small> : null}</td>
                         <td><strong className="draft-score">{ranking.score.toFixed(1)}</strong></td>
                         <td><details className="info-popover confidence-popover"><summary className={`draft-confidence-chip ${ranking.confidence.toLowerCase()}`}>{ranking.confidence} {ranking.confidenceScore}</summary><div>{ranking.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></td>
                         <td><FeatureMeter value={ranking.teamFit} /></td>
@@ -459,13 +459,13 @@ export function DraftAssistant() {
 
             <aside className="draft-side-panel">
               {selectedRanking ? <PlayerDetail ranking={selectedRanking} draftMode={draftMode} disabled={syncYahooPicks} onMine={() => recordPick(selectedRanking.player.playerKey, true)} onTaken={() => recordPick(selectedRanking.player.playerKey, false)} /> : null}
-              {draftMode === "salary-cap" ? <section className="draft-side-section"><div className="draft-side-heading"><div><p className="eyebrow">Budgets</p><h3>League bankroll<HelpTip topic="price" /></h3></div><span>${auctionBudget} cap</span></div><div className="budget-list">{teamBudgets.map((team) => <div key={team.key}><strong>{team.name}</strong><span>${team.remaining} left · max ${team.maxBid}</span></div>)}</div></section> : null}
+              {draftMode === "salary-cap" ? <section className="draft-side-section"><div className="draft-side-heading"><div><p className="eyebrow">Budgets</p><h3>League bankroll</h3></div><span>${auctionBudget} cap</span></div><div className="budget-list">{teamBudgets.map((team) => <div key={team.key}><strong>{team.name}</strong><span>${team.remaining} left · max ${team.maxBid}</span></div>)}</div></section> : null}
               <section className="draft-side-section">
-                <div className="draft-side-heading"><div><p className="eyebrow">Build</p><h3>Category plan<HelpTip topic="strategy" /></h3></div>{board.inferredPunts.length ? <span className="inferred-badge">Auto punt: {board.inferredPunts.join(", ")}</span> : null}</div>
+                <div className="draft-side-heading"><div><p className="eyebrow">Build</p><h3>Category plan<HelpTip topic="categoryProfile" /></h3></div>{board.inferredPunts.length ? <span className="inferred-badge">Auto punt: {board.inferredPunts.join(", ")}</span> : null}</div>
                 <div className="category-plan-list">
                   {board.teamProfile.map((category) => (
                     <div className="category-plan-row" key={category.statId}>
-                      <div><strong>{category.displayName}</strong><StatHelp id={category.statId} name={category.displayName} context="projection" /><small>{myRoster.length ? `${category.percentile}th percentile` : "No picks yet"}</small></div>
+                      <div><strong>{category.displayName}</strong><small>{myRoster.length ? `${category.percentile}th percentile` : "No picks yet"}</small></div>
                       <div className="category-mode-control" role="radiogroup" aria-label={`${category.displayName} strategy`}>
                         {modeOrder.map((mode) => <button key={mode} type="button" role="radio" aria-checked={category.mode === mode} className={category.mode === mode ? "active" : ""} onClick={() => setCategoryMode(category.statId, mode)} title={`${mode} ${category.displayName}`}>{mode === "target" ? <Target size={11} /> : mode === "punt" ? "P" : "B"}</button>)}
                       </div>
@@ -474,14 +474,14 @@ export function DraftAssistant() {
                 </div>
               </section>
               <section className="draft-side-section">
-                <div className="draft-side-heading"><div><p className="eyebrow">Roster</p><h3>My team<HelpTip topic="draftTurn" /></h3></div><span>{myRoster.length} picks</span></div>
+                <div className="draft-side-heading"><div><p className="eyebrow">Roster</p><h3>My team</h3></div><span>{myRoster.length} picks</span></div>
                 <div className="my-roster-list">
                   {myRoster.map((player, index) => <div key={player.playerKey}><span>{index + 1}</span><PlayerIdentity player={player} avatarSize={26} /></div>)}
                   {!myRoster.length ? <p className="side-empty">No players selected.</p> : null}
                 </div>
               </section>
               <section className="draft-side-section draft-history-section">
-                <div className="draft-side-heading"><div><p className="eyebrow">Board</p><h3>Recent picks<HelpTip topic="draftActions" /></h3></div><button className="undo-button" type="button" onClick={undoLastPick} disabled={syncYahooPicks || !manualPicks.length} title="Undo last manual pick"><RotateCcw size={13} />Undo</button></div>
+                <div className="draft-side-heading"><div><p className="eyebrow">Board</p><h3>Recent picks</h3></div><button className="undo-button" type="button" onClick={undoLastPick} disabled={syncYahooPicks || !manualPicks.length} title="Undo last manual pick"><RotateCcw size={13} />Undo</button></div>
                 <div className="draft-history-list">
                   {[...yahooDrafted.map((result) => ({ playerKey: result.playerKey, isMine: result.teamKey === data.league.userTeam.key, pick: result.pick })), ...effectiveManualPicks.map((pick, index) => ({ ...pick, pick: yahooDrafted.length + index + 1 }))].slice(-8).reverse().map((pick) => (
                     <div key={`${pick.pick}-${pick.playerKey}`}><span>#{pick.pick}</span><strong>{playerByKey.get(pick.playerKey)?.name ?? pick.playerKey}</strong>{pick.isMine ? <small>Mine</small> : null}</div>
@@ -493,7 +493,7 @@ export function DraftAssistant() {
           </div>
         ) : null}
         {loading && data ? <div className="draft-syncing"><RefreshCw size={14} className="animate-spin" />Syncing Yahoo</div> : null}
-        {pickDialog && data ? <div className="modal-backdrop" role="presentation" onMouseDown={() => setPickDialog(null)}><section className="pick-dialog" role="dialog" aria-modal="true" aria-labelledby="pick-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div><p className="eyebrow">Auction result</p><h2 id="pick-dialog-title">Record {playerByKey.get(pickDialog.playerKey)?.name ?? "player"}</h2></div><label>Team<select value={pickDialog.teamKey} onChange={(event) => setPickDialog((current) => current ? { ...current, teamKey: event.target.value } : null)}>{data.draftTeams.map((team) => <option key={team.key} value={team.key}>{team.name}</option>)}</select></label><label>Winning bid<input type="number" min={1} max={auctionBudget} value={pickDialog.cost} onChange={(event) => setPickDialog((current) => current ? { ...current, cost: Math.max(1, Number(event.target.value) || 1) } : null)} /></label><HelpTip topic="draftSlot" label="得標隊伍" /><HelpTip topic="price" label="Winning bid" text="本次手動記錄的遊戲內得標金額；扣除該隊預算，不會送出 Yahoo 競價或產生實際付款。" /><div className="pick-dialog-actions"><button type="button" className="secondary-button" onClick={() => setPickDialog(null)}>Cancel</button><button type="button" className="primary-button" onClick={confirmAuctionPick}>Record pick</button></div></section></div> : null}
+        {pickDialog && data ? <div className="modal-backdrop" role="presentation" onMouseDown={() => setPickDialog(null)}><section className="pick-dialog" role="dialog" aria-modal="true" aria-labelledby="pick-dialog-title" onMouseDown={(event) => event.stopPropagation()}><div><p className="eyebrow">Auction result</p><h2 id="pick-dialog-title">Record {playerByKey.get(pickDialog.playerKey)?.name ?? "player"}</h2></div><label>Team<select value={pickDialog.teamKey} onChange={(event) => setPickDialog((current) => current ? { ...current, teamKey: event.target.value } : null)}>{data.draftTeams.map((team) => <option key={team.key} value={team.key}>{team.name}</option>)}</select></label><label>Winning bid<input type="number" min={1} max={auctionBudget} value={pickDialog.cost} onChange={(event) => setPickDialog((current) => current ? { ...current, cost: Math.max(1, Number(event.target.value) || 1) } : null)} /></label><div className="pick-dialog-actions"><button type="button" className="secondary-button" onClick={() => setPickDialog(null)}>Cancel</button><button type="button" className="primary-button" onClick={confirmAuctionPick}>Record pick</button></div></section></div> : null}
       </div>
     </main>
   );
@@ -507,7 +507,7 @@ function PlayerDetail({ ranking, draftMode, disabled, onMine, onTaken }: { ranki
   return (
     <section className="draft-player-detail">
       <div className="draft-detail-top"><PlayerIdentity player={ranking.player} /><strong>{ranking.score.toFixed(1)}<HelpTip topic="draftScore" /></strong></div>
-      <div className="draft-detail-metrics"><div><span>ADP<HelpTip topic="adp" /></span><strong>{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? "--"}</strong></div><div><span>Fit<HelpTip topic="fit" /></span><strong>{ranking.teamFit.toFixed(0)}</strong></div><div><span>{draftMode === "salary-cap" ? "Price" : "Return"}<HelpTip topic={draftMode === "salary-cap" ? "price" : "estimatedReturn"} /></span><strong>{draftMode === "salary-cap" ? `$${ranking.recommendedPrice ?? "--"}` : ranking.estimatedReturn === null ? "--" : `${ranking.estimatedReturn}%`}</strong></div><div><span>Confidence<HelpTip topic="confidence" /></span><details className="info-popover confidence-popover"><summary className={`draft-detail-confidence ${ranking.confidence.toLowerCase()}`}>{ranking.confidence} {ranking.confidenceScore}</summary><div>{ranking.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></div></div>
+      <div className="draft-detail-metrics"><div><span>ADP</span><strong>{ranking.player.draftAnalysis.averagePick?.toFixed(1) ?? "--"}</strong></div><div><span>Fit<HelpTip topic="fit" /></span><strong>{ranking.teamFit.toFixed(0)}</strong></div><div><span>{draftMode === "salary-cap" ? "Price" : "Return"}<HelpTip topic={draftMode === "salary-cap" ? "price" : "estimatedReturn"} /></span><strong>{draftMode === "salary-cap" ? `$${ranking.recommendedPrice ?? "--"}` : ranking.estimatedReturn === null ? "--" : `${ranking.estimatedReturn}%`}</strong></div><div><span>Confidence<HelpTip topic="confidence" /></span><details className="info-popover confidence-popover"><summary className={`draft-detail-confidence ${ranking.confidence.toLowerCase()}`}>{ranking.confidence} {ranking.confidenceScore}</summary><div>{ranking.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></div></div>
       <div className="draft-category-chips"><HelpTip topic="zScore" />{ranking.categoryScores.slice(0, 5).map((category) => <span key={category.statId} className={category.zScore >= 0 ? "positive" : "negative"}>{category.displayName} {category.zScore > 0 ? "+" : ""}{category.zScore.toFixed(1)}z</span>)}</div>
       {ranking.watchouts.length ? <div className="draft-watchouts"><HelpTip topic="helps" />{ranking.watchouts.map((watchout) => <span key={watchout}>{watchout}</span>)}</div> : null}
       <div className="draft-detail-actions"><button type="button" className="primary-button" disabled={disabled} onClick={onMine}><UserPlus size={14} />Draft</button><button type="button" className="secondary-button" disabled={disabled} onClick={onTaken}><CircleX size={14} />Taken</button></div>

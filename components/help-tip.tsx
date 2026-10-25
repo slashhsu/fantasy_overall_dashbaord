@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HELP, statDescription, type HelpKey, type StatContext } from "@/lib/help-content";
+import { HELP, type ModelHelpKey } from "@/lib/help-content";
 
-export function HelpTip({ topic, label, text }: { topic: HelpKey; label?: string; text?: string }) {
+export function HelpTip({ topic, label, text }: { topic: ModelHelpKey; label?: string; text?: string }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -53,7 +53,4 @@ export function HelpTip({ topic, label, text }: { topic: HelpKey; label?: string
       <strong>{label ?? HELP[topic][1]}</strong><p>{text ?? HELP[topic][2]}</p>
     </div>, document.body)}
   </span>;
-}
-export function StatHelp({ id, name, context }: { id: string; name: string; context: StatContext }) {
-  return <HelpTip topic="stats" label={name} text={statDescription(id, name, context)} />;
 }

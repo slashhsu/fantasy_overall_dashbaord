@@ -621,7 +621,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .help-tooltip { position: fixed; z-index: 10000; width: 330px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; box-sizing: border-box; padding: 15px 17px; background: #fffaf3; color: #3c3026; border: 1px solid #d9b898; border-radius: 12px; box-shadow: 0 12px 36px #10182038; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; text-align: left; }
 .help-tooltip strong { display: block; font-size: 14px; color: #663b20; }
 .help-tooltip p { margin: 6px 0 0; }
-.refresh-with-help { display: inline-flex; align-items: center; gap: 2px; }
 .control-label { display: flex; align-items: center; gap: 2px; }
 .data-table th .help-anchor { vertical-align: middle; }
 .data-table th .sort-button { display: inline-flex; }
@@ -644,5 +643,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .guide-section [id], .guide-section { scroll-margin-top: 100px; }
 .raw-help { padding: 16px 24px; color: #665c53; font-size: 13px; line-height: 1.8; }
 @media (max-width: 640px) { .help-trigger { width: 28px; min-width: 28px; height: 28px; } .guide-toc, .guide-section { padding: 18px; } }
-.reset-with-help { display: inline-flex; align-items: center; gap: 2px; }
-.control-bar > .refresh-with-help, .draft-control-bar > .refresh-with-help, .draft-control-bar > .reset-with-help { align-self: end; }
+
+.adp-proxy { display: block; color: #806040; font-size: 10px; white-space: normal; }

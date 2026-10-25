@@ -1,5 +1,5 @@
 "use client";
-import { scoreTopic } from "@/lib/help-content";
+import { scoreHelpFor, scoreTopic } from "@/lib/help-content";
 import { HelpTip } from "@/components/help-tip";
 import { useEffect, useRef, useState } from "react";
 import { PlayerAvatar } from "@/components/player-avatar";
@@ -76,9 +76,10 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
   };
   const data = view?.data;
   const players = new Map(data?.players.map((player) => [player.playerKey, player]));
+  const scoreHelp = scoreHelpFor([...(data?.opportunities ?? []), ...(data?.watchlist ?? [])]);
   const minutes = (value: number | null) => value === null ? "資料不足" : `${value.toFixed(1)} 分鐘`;
   return <div className="injury-body" aria-busy={loading}>
-    <div className="injury-toolbar"><p className="injury-message">{data?.demoMode ? "Demo 示範資料 · " : ""}僅提供本站提醒；更換裝置或清除瀏覽器資料後，可能無法辨識先前傷病。觀察紀錄保留 30 天。<HelpTip topic="injuryHistory" /></p>
+    <div className="injury-toolbar"><p className="injury-message">{data?.demoMode ? "Demo 示範資料 · " : ""}僅提供本站提醒；更換裝置或清除瀏覽器資料後，可能無法辨識先前傷病。觀察紀錄保留 30 天。</p>
       <RefreshControl label="Refresh injury advice" status={data?.updateStatus} loading={loading} disabled={false} onRefresh={() => setRetry((value) => value + 1)} /></div>
     {loading ? <p role="status" className="injury-message">正在查詢傷病與輪替資料，不影響下方推薦名單…</p> : null}
     {error ? <p role="alert" className="status-error">{error}</p> : null}
@@ -86,13 +87,14 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
     <UpdateNotice status={data?.updateStatus} />
     {data?.warnings.map((warning) => <p key={warning} className="inline-notice warning">{warning}</p>)}
     {data && data.status !== "historical" ? <>
+      {data.opportunities.length || data.watchlist.length ? <p className="injury-message">推薦分數<HelpTip topic={scoreHelp.topic} label="傷病推薦分數" /></p> : null}
       <h3 className="injury-section-title">精選補人<HelpTip topic="injuryMinutes" /></h3>
-      <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} />)}</div>
+      <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
       {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補，不代表需要補人。{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}
       <details className="injury-watchlist">
-        <summary>觀察名單（{data.watchlist.length}）</summary><HelpTip topic="injuryMinutes" label="觀察名單" />
+        <summary>觀察名單（{data.watchlist.length}）</summary>
         <p className="injury-message">傷病待確認、正向增幅樣本不足或來源受限，暫不列為精選；觀察名單不建立新的復出追蹤。</p>
-        <div className="injury-card-grid">{data.watchlist.map((item) => <OpportunityCard key={item.id} item={item} players={players} />)}</div>
+        <div className="injury-card-grid">{data.watchlist.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
         {!data.watchlist.length ? <p className="injury-message">目前沒有符合條件的觀察候選。</p> : null}
       </details>
       <h3 className="injury-section-title">考慮釋出／重新評估<HelpTip topic="returns" /></h3>
@@ -111,7 +113,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
   </div>;
 }
 
-function OpportunityCard({ item, players }: { item: InjuryOpportunity; players: Map<string, InjuryResponse["players"][number]> }) {
+function OpportunityCard({ item, players, mixedScores }: { mixedScores: boolean; item: InjuryOpportunity; players: Map<string, InjuryResponse["players"][number]> }) {
   const backup = players.get(item.beneficiaryKey);
   if (!backup) return null;
   const reasons = {
@@ -124,10 +126,10 @@ function OpportunityCard({ item, players }: { item: InjuryOpportunity; players: 
     <p className="eyebrow">{item.group === "featured" ? "精選補人" : "觀察候選"} · {item.relatedInjuries.map((entry) => players.get(entry.playerKey)?.status).filter(Boolean).join("／")}</p>
     <p className="injury-relationship">{item.relatedInjuries.map((entry) => players.get(entry.playerKey)?.name ?? entry.playerKey).join("、")} → {backup.name}</p>
     <div className="player-cell"><PlayerAvatar name={backup.name} headshotUrl={backup.headshotUrl} /><span><strong>{backup.name}</strong><small>{backup.team} · {backup.position}</small></span></div>
-    <p className="injury-evidence">{reasons[item.reason]}<HelpTip topic="injuryStatus" /></p>
-    {item.relatedInjuries.map((entry) => <p key={entry.playerKey} className="injury-evidence">傷員基準：{players.get(entry.playerKey)?.name} · {entry.period === "lastmonth" ? "近 30 天" : "賽季"} {entry.games} 場、{entry.minutes.toFixed(1)} 分鐘／場（平均時間代理，非已確認傷前健康期）。<HelpTip topic="injury" /></p>)}
-    <p className="injury-evidence">近 7 天：{backup.weekMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.weekGames ?? "—"} 場）；近 30 天：{backup.monthMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.monthGames ?? "—"} 場）；變化 +{item.minutesDelta.toFixed(1)} 分鐘。<HelpTip topic="injuryMinutes" /></p>
+    <p className="injury-evidence">{reasons[item.reason]}</p>
+    {item.relatedInjuries.map((entry) => <p key={entry.playerKey} className="injury-evidence">傷員基準：{players.get(entry.playerKey)?.name} · {entry.period === "lastmonth" ? "近 30 天" : "賽季"} {entry.games} 場、{entry.minutes.toFixed(1)} 分鐘／場（平均時間代理，非已確認傷前健康期）。</p>)}
+    <p className="injury-evidence">近 7 天：{backup.weekMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.weekGames ?? "—"} 場）；近 30 天：{backup.monthMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.monthGames ?? "—"} 場）；變化 +{item.minutesDelta.toFixed(1)} 分鐘。</p>
     <div className="tag-list"><span className="watch-tag">可信程度：{item.group === "featured" ? "中・規則推估" : "低"}</span>{item.helps.map((help) => <span key={help} className="help-tag">{help}</span>)}</div>
-    <p className="injury-evidence">目前推薦分數 {item.score.toFixed(2)}；沿用所選聯盟與隊伍的推薦需求排序。<HelpTip topic={scoreTopic(item.scoreType ?? "")} label="傷病推薦分數" /></p>
+    <p className="injury-evidence">目前推薦分數 {item.score.toFixed(2)}；沿用所選聯盟與隊伍的推薦需求排序。{mixedScores ? <HelpTip topic={scoreTopic(item.scoreType ?? "")} label={`${backup.name} 傷病分數單位`} /> : null}</p>
   </article>;
 }

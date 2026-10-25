@@ -11,7 +11,7 @@ export const HELP = {
   rank: ["推薦與摘要", "# / 排名與排序", "目前畫面排序後的列次，從 1 開始；不是 Yahoo 排名。點擊可排序欄名切換升冪／降冪，箭頭代表目前方向，缺值不應解讀為零。"],
   player: ["推薦與摘要", "Player / NBA / Position", "Player 是姓名；Team／NBA 為真實 NBA 球隊縮寫，不是 Fantasy 球隊。PG 控衛、SG 得分後衛、SF 小前鋒、PF 大前鋒、C 中鋒；多位置以分隔符表示，位置資格以 Yahoo 為準。"],
   game: ["推薦與摘要", "Game / NBA teams play", "所選日期的 NBA 賽程：Plays 有比賽、Off 無比賽、Unknown 未確認。NBA teams play 是出賽 NBA 球隊數，不是場數。有比賽不保證球員健康或實際上場。"],
-  swing: ["推薦與摘要", "Swing：依模型判讀", "Swing 是補人的模型增益，實際單位取決於 scoreType：對戰勝率變化、預期贏得分類數，或分類適配分數。正值通常較有利；不能把所有 Swing 數值直接當作百分比。個別分數旁會說明實際類型。"],
+  swing: ["推薦與摘要", "Swing：依模型判讀", "Swing 是補人的模型增益，實際單位取決於 scoreType：對戰勝率變化、預期贏得分類數，或分類適配分數。正值通常較有利；不能把所有 Swing 數值直接當作百分比。同一欄使用相同單位時由表頭說明；只有混合單位時另標個別值。"],
   probability: ["推薦與摘要", "對戰勝率變化", "Most Categories 模型組合各分類機率估計對戰結果值（勝為 1、平為 0.5）的變化，以小數顯示。例如 +0.050 表示增加 5 個百分點，不是保證勝率，也不是相對增加 5%。"],
   expectedCategories: ["推薦與摘要", "預期贏得分類數", "各分類勝率變化的加總，單位是預期分類數。例如 +0.20 是期望值增加 0.20 個分類，不代表整場勝率增加 20 個百分點。"],
   categoryFit: ["推薦與摘要", "分類適配分數", "以可取得球員池的標準化表現、分類需求及資料可靠度加權的相對分數，沒有百分比單位。適合同次、同聯盟排序，不宜跨聯盟直接比較。"],
@@ -27,7 +27,7 @@ export const HELP = {
   direction: ["週報與球員明細", "Direction", "Higher wins 表示較高數值有利，Lower wins 表示較低有利，例如失誤。實際判斷依程式支援的分類規則；未知自訂分類不能僅憑名稱推定方向。"],
   heatmap: ["週報與球員明細", "Matchups 熱圖 / View", "每格上、下分別是該場第一隊與第二隊的目前週比分。顏色在同一分類跨聯盟隊伍間比較，失誤等反向分類會反轉；不是勝率，也不能跨分類比顏色。View／Selected 都會切換到該場週報。"],
   weekly: ["週報與球員明細", "球員當週數據與期間", "展開後取得該週曾在雙方隊上的球員之整週 NBA 成績，包含板凳及不在 Fantasy 隊上期間。同人可出現在雙方，因此球員加總不一定等於週報比分。當週只統計至 Yahoo 太平洋時間今天，歷史週採完整對戰期間。"],
-  stats: ["週報與球員明細", "統計分類與數據單位", "GP 是出賽場數；PTS 得分、REB 籃板、AST 助攻、STL 抄截、BLK 阻攻、TO 失誤、3PM 三分命中次數。FG%／FT%／3PT% 為命中率，不是命中次數；週比率由命中／出手重新計算，不平均每日百分比。各分類ⓘ另列詳細定義。"],
+  stats: ["週報與球員明細", "統計分類與數據單位", "GP 是出賽場數；PTS 得分、REB 籃板、AST 助攻、STL 抄截、BLK 阻攻、TO 失誤、3PM 三分命中次數。FG%／FT%／3PT% 為命中率，不是命中次數；週比率由命中／出手重新計算，不平均每日百分比。各分類定義見本說明書的統計分類詞彙。"],
   missing: ["週報與球員明細", "— / -- / * / 缺值", "—／-- 表示未取得或不適用，不代表零。數字會依欄位四捨五入，顯示 0 與缺值不同，極小數也可能被顯示為 0。球員週明細在資料不完整時，數字僅是已取得日期累計；比率旁 * 表示只用部分日期的成對分子／分母計算。缺值日期與缺少陣容日期會影響名單及加總。"],
   injury: ["傷病與復出", "精選補人 / 觀察名單", "傷員以近月至少 5 場、場均至少 28 分鐘判定重要性；近月不足才用賽季至少 5 場。替補須可取得、同 NBA 球隊、位置重疊、健康且符合現有推薦需求。這是平均時間代理，不是已確認的傷前健康期。"],
   injuryMinutes: ["傷病與復出", "傷病時間門檻與樣本", "精選須傷員確認缺陣，替補近 7 天至少 3 場、場均至少 24 分鐘，較近月至少 5 場的平均增加至少 5 分鐘。Q／GTD 等待確認、正向變化但樣本不足，或來源受限者只列觀察。每位傷員每區最多 2 人，每區最多 5 人。"],
@@ -44,6 +44,9 @@ export const HELP = {
   estimatedReturn: ["選秀", "Estimated return / Return", "依 Yahoo 市場順位等訊號估計，到你下一輪選人時該球員仍可選的機率，以 % 顯示。不是投資報酬或球員表現預測；只在 Snake／Linear 提供，屬未驗證的推估。"],
   aav: ["選秀", "AAV", "Yahoo Average Auction Value，市場平均競價成本，單位為遊戲內預算 $。不是本站建議價，也不保證適合本聯盟預算。"],
   price: ["選秀", "Price / Value / Max bid", "Price 是本站依邊際價值、預算與競價膨脹估計的建議價；Value＝Price－Yahoo AAV，正值代表本站估價較高，不保證便宜。Max bid 是剩餘預算扣除其他空位至少各 $1 後的上限，不是建議全額出價。"],
+  modelSlot: ["選秀", "建議 Slot", "模型依球員 Yahoo 位置資格與目前模擬陣容空位建議的放置位置；Roster full 表示沒有可用位置。不是球員唯一位置，也不是已在 Yahoo 排定的先發。"],
+  modelWhy: ["選秀", "模型 Why", "模型列出的分類貢獻、位置稀缺與輪次急迫理由。z 代表標準差單位；Unlikely back／May last 是下輪仍可選的推估，不是確定的選秀結果。"],
+  categoryProfile: ["選秀", "陣容百分位 / Auto punt", "分類 percentile 是模型依模擬陣容估計的相對表現，不是實際聯盟排名。Auto punt 是模型推測應放棄的弱項，不等於你的明確策略指令；可在分類策略控制項自行調整。"],
   draftSlot: ["選秀", "Slot / Why / Pick", "Slot 是模型建議放入的陣容位置，Roster full 表示無位置。Why 是分類、稀缺或順位理由。Draft 將球員記為自己的模擬選擇，Taken 記為其他隊已選；競價模式需記錄得標隊伍與成本。"],
   strategy: ["選秀", "Category plan / Target / Balanced / Punt", "Target 加強該分類權重；Balanced 維持平衡；Punt 不再追求該分類。Auto punt 是模型推測，並非你的明確指令。分類旁 percentile 是估計陣容相對表現，不是已發生賽季排名。"],
   zScore: ["選秀", "z / 分類表現", "z 是相對候選池平均的標準差單位。例如 +1z 表示模型方向上約高於平均一個標準差；反向分類已轉為有利方向。比率分類會考慮出手量，不是單純命中率排名。"],
@@ -55,7 +58,15 @@ export const HELP = {
   raw: ["原始資料", "Raw Data", "登入保護 API 的正規化回應。league／week／targetDate／timeZone 是查詢範圍；matchups／categoryNeeds 是對戰與分類比分；recommendations 是預估；schedule 是賽程；dataQuality／model／updateStatus 是來源、模型與取得時間。JSON 中 0、null、缺少欄位的意義不同，勿把預估當實績。"],
 } as const;
 export type HelpKey = keyof typeof HELP;
-export const scoreTopic = (type: string): HelpKey => ({ "matchup-probability": "probability", "expected-categories": "expectedCategories", "fantasy-points": "netFp", "roto-points": "rotoGain", "blended-z-score": "categoryFit", "legacy-z-score": "categoryFit" } as Record<string, HelpKey>)[type] ?? "swing";
+// Only these computed model concepts may appear as workspace hint icons.
+export const MODEL_HELP_KEYS = ["inPlay", "swing", "probability", "expectedCategories", "categoryFit", "netFp", "rotoGain", "confidence", "lineup", "helps", "scoreResult", "priority", "injury", "injuryMinutes", "returns", "draftScore", "fit", "scarcity", "estimatedReturn", "price", "modelSlot", "modelWhy", "categoryProfile", "zScore"] as const satisfies readonly HelpKey[];
+export type ModelHelpKey = typeof MODEL_HELP_KEYS[number];
+export const HELP_USAGE = Object.fromEntries(Object.keys(HELP).map((key) => [key, (MODEL_HELP_KEYS as readonly string[]).includes(key) ? "model" : "guide-only"])) as Record<HelpKey, "model" | "guide-only">;
+export const scoreTopic = (type: string): ModelHelpKey => ({ "matchup-probability": "probability", "expected-categories": "expectedCategories", "fantasy-points": "netFp", "roto-points": "rotoGain", "blended-z-score": "categoryFit", "legacy-z-score": "categoryFit" } as Record<string, ModelHelpKey>)[type] ?? "swing";
+export function scoreHelpFor(items: readonly { scoreType?: string }[]): { topic: ModelHelpKey; mixed: boolean } {
+  const topics = [...new Set(items.map((item) => scoreTopic(item.scoreType ?? "")))];
+  return { topic: topics.length === 1 ? topics[0] : "swing", mixed: topics.length > 1 };
+}
 export const STAT_DEFINITIONS: Record<string, [string, string]> = {
   "0": ["GP", "實際出賽場數，不是先發場數。"], "1": ["Rank", "Yahoo 提供的排名，不是本站排序列次。"],
   "3": ["FGA", "投籃出手次數。"], "4": ["FGM", "投籃命中次數。"], "5": ["FG%", "投籃命中率＝FGM／FGA。"],
@@ -67,9 +78,3 @@ export const STAT_DEFINITIONS: Record<string, [string, string]> = {
   "23": ["TECH", "技術犯規次數。"], "24": ["EJ", "被驅逐出場次數。"], "25": ["FF", "惡意犯規次數。"], "26": ["MIN", "上場分鐘總數；場均分鐘須除以出賽場數。"],
   "27": ["GS", "先發場數。"], "28": ["DD", "雙十場次：主要數據至少兩項達兩位數。"], "29": ["TD", "大三元場次：主要數據至少三項達兩位數。"],
 };
-export type StatContext = "projection" | "weekly" | "matchup";
-export function statDescription(id: string, name: string, context: StatContext) {
-  const definition = STAT_DEFINITIONS[id];
-  const period = context === "projection" ? "此欄為模型單場預估，不是當週實際累計。" : context === "weekly" ? "此欄為所選對戰期間的球員實績；計數採已取得日期累計，比率由分子／分母重算。" : "此欄為 Yahoo 回傳的所選週 Fantasy 球隊分類比分，依該分類保留累計或比率。";
-  return `${name}：${definition ? definition[1] : "Yahoo 自訂或未知分類，目前缺少專屬定義，依原始名稱與回傳值顯示，不推測計算公式。"}${period}`;
-}
