@@ -608,3 +608,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .injury-card .player-cell strong { max-width: none; white-space: normal; }
 .injury-return-card { border-left: 3px solid #da8044; }
 .injury-body .update-notice { color: #69717b; }
+
+.injury-watchlist { margin: 16px 0; padding: 12px; border: 1px solid #e6d7c9; border-radius: 12px; }
+.injury-watchlist > summary { cursor: pointer; color: #765036; font-size: 14px; font-weight: 700; padding: 4px; }
+.injury-watchlist > summary:focus-visible { outline: 2px solid #da8044; outline-offset: 3px; }

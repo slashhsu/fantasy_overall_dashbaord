@@ -4,12 +4,12 @@ import { InjuryAdvice, injuryStorageKey } from "@/components/injury-advice";
 import type { InjuryHistory, InjuryResponse } from "@/lib/injury-types";
 const props = { leagueKey: "nba.l.1", teamKey: "nba.l.1.t.1", week: 1, date: "2026-10-24", timeZone: "America/Los_Angeles", refreshVersion: 0 };
 const snapshot = (): InjuryResponse => ({ ...props, generatedAt: new Date().toISOString(), observationDate: new Date().toISOString().slice(0, 10), status: "complete", players: [
-  { playerKey: "nba.p.1", name: "Star Guard", team: "BOS", position: "PG", status: "", statusKnown: true, weekGames: 3, weekMinutes: 32, monthMinutes: 32, seasonMinutes: 32, playedDates: [new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)] },
-  { playerKey: "nba.p.2", name: "Backup Guard", team: "BOS", position: "PG", status: "", statusKnown: true, weekGames: 3, weekMinutes: 20, monthMinutes: 19, seasonMinutes: 19, playedDates: [] },
-], rosterKeys: ["nba.p.2"], opportunities: [], warnings: [], demoMode: false });
+  { playerKey: "nba.p.1", name: "Star Guard", team: "BOS", position: "PG", status: "", statusKnown: true, weekGames: 3, weekMinutes: 32, monthGames: 10, seasonGames: 20, monthMinutes: 32, seasonMinutes: 32, playedDates: [new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)] },
+  { playerKey: "nba.p.2", name: "Backup Guard", team: "BOS", position: "PG", status: "", statusKnown: true, weekGames: 3, weekMinutes: 20, monthGames: 10, seasonGames: 20, monthMinutes: 19, seasonMinutes: 19, playedDates: [] },
+], rosterKeys: ["nba.p.2"], opportunities: [], watchlist: [], exclusionCounts: {}, warnings: [], demoMode: false });
 const history = (): InjuryHistory => {
   const then = new Date(Date.now() - 3 * 86_400_000).toISOString();
-  return { version: 1, observations: [{ id: "nba.p.1:nba.p.2", injuredKey: "nba.p.1", beneficiaryKey: "nba.p.2", nbaTeam: "BOS", episodeAt: then, lastInjuredAt: then, lastSeenAt: then, beneficiaryMinutes: 29 }], healthyBaselines: [] };
+  return { version: 2, observations: [{ id: "nba.p.1:nba.p.2", injuredKey: "nba.p.1", beneficiaryKey: "nba.p.2", nbaTeam: "BOS", episodeAt: then, lastInjuredAt: then, lastSeenAt: then, beneficiaryMinutes: 29 }], healthyBaselines: [] };
 };
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 describe("injury advice on the recommendation page", () => {
@@ -48,4 +48,35 @@ describe("injury advice on the recommendation page", () => {
     expect(screen.queryByText("已恢復出賽")).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(injuryStorageKey(props.leagueKey, props.teamKey))!).observations).toEqual(stored.observations);
   });
+});
+
+it("renders server groups, starts watching collapsed and removes old loose history", async () => {
+  const oldKey = injuryStorageKey(props.leagueKey, props.teamKey).replace(":v2:", ":v1:");
+  localStorage.setItem(oldKey, JSON.stringify({ ...history(), version: 1 }));
+  const data = snapshot();
+  data.players[0].status = "Q";
+  data.watchlist = [{ id: "watch", injuredKey: "nba.p.1", beneficiaryKey: "nba.p.2", benefiting: false, score: 8, helps: ["AST"], minutesDelta: 5, group: "watch", reason: "unconfirmed-absence", relatedInjuries: [{ playerKey: "nba.p.1", period: "lastmonth", games: 10, minutes: 32 }] }];
+  data.exclusionCounts = { "傷員重要性不足或基準資料不足": 2 };
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => data })));
+  const { container } = render(<InjuryAdvice {...props} />);
+  await screen.findByText(/傷員重要性不足或基準資料不足（2）/);
+  const details = container.querySelector("details")!;
+  expect(details.open).toBe(false);
+  fireEvent.click(screen.getByText("觀察名單（1）"));
+  expect(details.open).toBe(true);
+  expect(screen.getByText(/傷病觀察，尚未確認缺陣/)).toBeInTheDocument();
+  expect(screen.getByText(/非已確認傷前健康期/)).toBeInTheDocument();
+  expect(localStorage.getItem(oldKey)).toBeNull();
+  expect(JSON.parse(localStorage.getItem(injuryStorageKey(props.leagueKey, props.teamKey))!).observations).toEqual([]);
+});
+it("clears prior team cards and ignores their late response after switching teams", async () => {
+  let finish!: (value: unknown) => void;
+  const deferred = new Promise((resolve) => { finish = resolve; });
+  vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("teamKey=nba.l.1.t.1") ? deferred : Promise.resolve({ ok: true, json: async () => ({ ...snapshot(), teamKey: "nba.l.1.t.2", exclusionCounts: { "新隊伍沒有合格替補": 1 } }) })));
+  const { rerender } = render(<InjuryAdvice {...props} />);
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  rerender(<InjuryAdvice {...props} teamKey="nba.l.1.t.2" />);
+  await screen.findByText(/新隊伍沒有合格替補/);
+  await act(async () => { finish({ ok: true, json: async () => ({ ...snapshot(), exclusionCounts: { "舊隊伍資料": 1 } }) }); });
+  expect(screen.queryByText(/舊隊伍資料/)).not.toBeInTheDocument();
 });

@@ -219,19 +219,29 @@ refresh cooldown and two-slot Yahoo gate. Stats producers are sequential rather
 than creating a large queue. New injury requests do not block the recommendation
 response, although they still share the instance's Yahoo request budget.
 
-Rules are heuristic and not backtested:
-- `O`, `OUT`, `INJ`, `IL`, `IL+` indicate absence; `Q`, `GTD`, `DTD`, `D` are
-  observation-only. Unknown statuses are not treated as healthy.
-- Eligible available substitutes share an NBA team and an explicit eligible
-  position with the injured player. Already-owned players are excluded.
-- At least three games in the last seven days and a four-minute per-game increase
-  over the last month qualify as a recent rotation beneficiary. Existing matchup
-  recommendation scores remain unchanged and determine candidate ordering.
-- Season/month averages below 24 minutes filter out low-baseline injured players;
-  absent baseline evidence yields low-confidence observation candidates, never a
-  confirmed starter claim. A starter label requires a prior local observation of
-  at least 24 MPG while the Yahoo status was clear. Clear status does not prove an
-  entire stat window was medically healthy; cards state this limitation.
+Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
+- Important injured players require at least 5 games and 28 MPG in the last month.
+  A sufficient month takes precedence over the season, even if the season average
+  is higher. Only insufficient/invalid monthly evidence falls back to a season
+  sample of at least 5 games. Neither window proves pre-injury medical health.
+- Featured substitutes must be available, have a known clear status, share the
+  injured player's NBA team and an explicit position, and appear in the first 50
+  existing matchup recommendations. Category formats also require a category
+  contribution reason; points formats do not. Original scoring is unchanged.
+- `O`, `OUT`, `INJ`, `IL`, `IL+` qualify as absence. Featured beneficiaries need
+  at least 3 last-week games, 24 MPG and a gain of at least 5 MPG over a last-month
+  sample of at least 5 games. Exact boundaries qualify.
+- `Q`, `GTD`, `DTD`, `D` only qualify for the collapsed watchlist. Positive minute
+  changes with insufficient (but nonzero, known) samples also qualify for watching.
+  Fully sampled candidates below either minute threshold are excluded, even with
+  a Q flag. Missing or nonpositive time evidence is not a recommendation.
+- Partial/stale sources demote otherwise eligible candidates to watching. The API
+  keeps `opportunities` for featured results and adds `watchlist`, `exclusionCounts`,
+  month/season GP, grouping reasons and related injury baseline evidence.
+- Each section sorts by existing score, minute gain, then stable player keys;
+  at most 2 substitutes per injured player and 5 unique substitutes per section.
+  Shared substitutes merge related injured players. Featured players are omitted
+  from the watchlist. Empty results show exclusion reasons instead of filler.
 - Clearing an injury flag yields only a possible-return message. Confirmed return
   requires positive dated GP after the last injury observation date; same-day
   appearances are inconclusive. A four-minute drop from the substitute's observed
@@ -239,13 +249,19 @@ Rules are heuristic and not backtested:
   from merely anticipating a smaller role. Neither automatically means drop.
 
 Browser storage is scoped by league and selected fantasy team under
-`fantasy-injury:v1:<leagueKey>:<teamKey>`. Injury/substitute pairs are capped at 50
-and retained for 30 days, alongside at most 50 healthy-status minute observations.
-Only complete, fresh, non-stale snapshots update observations or produce return
-alerts. The substitute must still be on the selected roster, both athletes must
-still share the observed NBA team, and a dismissal applies to that injury episode.
-New episodes reset the dismissal. No credentials are stored. Another device,
-private browsing, blocked storage or clearing site data can lose these reminders.
+`fantasy-injury:v2:<leagueKey>:<teamKey>`. On access, the old v1 key is removed;
+old-version observations are rejected to avoid carrying forward loose pairings.
+Injury/substitute pairs are capped at 50 and retained for 30 days, alongside at
+most 50 healthy-status minute observations (not used to override server eligibility).
+Only complete, fresh (within 10 minutes), non-stale snapshots update observations
+or produce return alerts. Only featured candidates establish new pairs, including
+all merged related injuries; watch candidates never establish pairs. Existing
+active pairs can still be monitored after their substitute is added to the roster.
+A new episode of a closed pair must qualify again before reopening.
+The substitute must still be on the selected roster, both athletes must still
+share the observed NBA team, and a dismissal applies to that injury episode.
+New qualifying episodes reset the dismissal. No credentials are stored. Another
+device, private browsing, blocked storage or clearing site data can lose these reminders.
 No external news feed, push notification, database or automatic roster action is
 introduced. Demo mode uses labeled fictional players and synthetic minute trends.
 

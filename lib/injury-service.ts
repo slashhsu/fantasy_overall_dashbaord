@@ -1,4 +1,5 @@
 import "server-only";
+import { recordUpdate, withUpdateStatus } from "@/lib/update-status";
 import { withCache } from "@/lib/cache";
 import { getDashboard } from "@/lib/dashboard-service";
 import { getRuntimeConfig, isDemoMode } from "@/lib/config";
@@ -15,10 +16,11 @@ export interface InjuryOptions { leagueKey: string; teamKey: string; week: numbe
 export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryResponse> {
   const { leagueKey, teamKey, week, date, timeZone, watchKeys, forceRefresh = false } = options;
   // getDashboard validates access to the league/team and reuses the dashboard's resources.
-  const dashboard = await getDashboard({ leagueKey, week, targetDate: date, timeZone, teamKey, forceRefresh });
+  const dashboard = await withUpdateStatus(() => getDashboard({ leagueKey, week, targetDate: date, timeZone, teamKey, forceRefresh }));
+  if (dashboard.updateStatus) recordUpdate(dashboard.updateStatus);
   const observationDate = todayInTimeZone("America/Los_Angeles");
   const result: InjuryResponse = { leagueKey, teamKey, generatedAt: new Date().toISOString(), observationDate,
-    status: "complete", players: [], rosterKeys: [], opportunities: [], warnings: [], demoMode: isDemoMode() };
+    status: "complete", players: [], rosterKeys: [], opportunities: [], watchlist: [], exclusionCounts: {}, warnings: [], demoMode: isDemoMode() };
   if (date !== todayInTimeZone(timeZone) || week !== dashboard.league.currentWeek) {
     return { ...result, status: "historical", warnings: ["歷史或未來週次／日期不套用目前傷病狀態，請切回當週及今天。"] };
   }
@@ -29,12 +31,13 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
         lastweek: { "Games Played (GP)": 3, "Minutes Played": recent * 3 }, lastmonth: { "Games Played (GP)": 10, "Minutes Played": baseline * 10 }, season: { "Games Played (GP)": 20, "Minutes Played": baseline * 20 },
       } });
     result.players = [injuryPlayer(player("demo.p.900001", "Demo Lead Guard", "O", 32, 32)), injuryPlayer(player("demo.p.900002", "Demo Backup Guard", "", 29, 19))];
-    result.opportunities = findInjuryOpportunities(result.players, new Set(["demo.p.900002"]), new Map([["demo.p.900002", { score: dashboard.recommendations[0]?.score ?? 0, helps: ["AST", "STL"] }]]));
+    Object.assign(result, findInjuryOpportunities(result.players, new Set(["demo.p.900002"]), new Map([["demo.p.900002", { score: dashboard.recommendations[0]?.score ?? 0, helps: ["AST", "STL"] }]])));
     return result;
   }
+  if (dashboard.updateStatus?.stale || dashboard.dataQuality?.stale || (dashboard.dataQuality && dashboard.dataQuality.status !== "complete")) result.status = "partial";
   const ttl = getRuntimeConfig().cacheTtlSeconds;
   const pool = await withCache(`free-agents:${leagueKey}`, ttl, () => fetchFreeAgentPool(leagueKey), forceRefresh);
-  if (pool.stale || pool.value.dataQuality.status !== "complete") result.status = "partial";
+  if (pool.stale || pool.value.dataQuality.stale || pool.value.dataQuality.status !== "complete") result.status = "partial";
   const selectedRoster = await withCache(`roster:${teamKey}:${date}`, ttl, () => fetchRoster(leagueKey, teamKey, date), forceRefresh).catch(() => null);
   if (!selectedRoster || selectedRoster.stale || !selectedRoster.value.available || selectedRoster.value.players.some((player) => !player.statWindows)) {
     result.status = "partial"; result.warnings.push("所選球隊陣容或數據不完整，暫不產生復出釋出提醒。");
@@ -64,7 +67,7 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
       stats: existing?.stats ?? metadataPlayer.stats, statWindows: existing?.statWindows ?? metadataPlayer.statWindows });
   }
   const watched = new Set(watchKeys);
-  const needingStats = [...all.values()].filter((player) => !player.statWindows && (watched.has(player.playerKey) || ["out", "watch"].includes(injuryState(player.status ?? ""))));
+  const needingStats = [...all.values()].filter((player) => (!player.statWindows?.lastweek || !player.statWindows?.lastmonth || !player.statWindows?.season) && (watched.has(player.playerKey) || ["out", "watch"].includes(injuryState(player.status ?? ""))));
   for (let index = 0; index < needingStats.length; index += 25) {
     const batch = needingStats.slice(index, index + 25);
     const windows = new Map<string, FreeAgent[]>();
@@ -79,7 +82,7 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
     }
     for (const player of batch) {
       const stats = mergePlayerWindows(windows.get(player.playerKey) ?? []);
-      if (stats) all.set(player.playerKey, { ...player, stats: stats.stats, statWindows: stats.statWindows });
+      if (stats) all.set(player.playerKey, { ...player, stats: stats.stats, statWindows: { ...player.statWindows, ...stats.statWindows } });
     }
   }
   result.players = [...all.values()].map(injuryPlayer);
@@ -98,7 +101,7 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
     }
   }
   const scores = new Map(dashboard.recommendations.map((player) => [player.playerKey, { score: player.score, helps: player.reason }]));
-  result.opportunities = findInjuryOpportunities(result.players, new Set(pool.value.players.filter((player) => !metadata.value.players.some((taken) => taken.playerKey === player.playerKey) && !result.rosterKeys.includes(player.playerKey)).map((player) => player.playerKey)), scores);
+  Object.assign(result, findInjuryOpportunities(result.players, new Set(pool.value.players.filter((player) => !metadata.value.players.some((taken) => taken.playerKey === player.playerKey) && !result.rosterKeys.includes(player.playerKey)).map((player) => player.playerKey)), scores, { points: dashboard.objective === "fantasy-points", limitedData: result.status !== "complete" }));
   if (result.status === "partial") result.warnings.push("部分來源不完整或使用備援資料；候選僅供觀察，不更新復出紀錄。");
   return result;
 }

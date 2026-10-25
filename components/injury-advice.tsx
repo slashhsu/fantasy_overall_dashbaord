@@ -2,11 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
-import { applyInjurySnapshot, emptyInjuryHistory, injuryState, sanitizeInjuryHistory } from "@/lib/injury-model";
-import type { InjuryHistory, InjuryResponse, ReturnAlert } from "@/lib/injury-types";
+import { applyInjurySnapshot, emptyInjuryHistory, sanitizeInjuryHistory } from "@/lib/injury-model";
+import type { InjuryHistory, InjuryOpportunity, InjuryResponse, ReturnAlert } from "@/lib/injury-types";
 
 interface Props { leagueKey: string; teamKey: string; week: number; date: string; timeZone: string; refreshVersion: number }
-export const injuryStorageKey = (leagueKey: string, teamKey: string) => `fantasy-injury:v1:${leagueKey}:${teamKey}`;
+export const injuryStorageKey = (leagueKey: string, teamKey: string) => `fantasy-injury:v2:${leagueKey}:${teamKey}`;
 function readHistory(key: string, fallback: InjuryHistory) {
   try { const raw = localStorage.getItem(key); return raw ? sanitizeInjuryHistory(JSON.parse(raw)) : fallback; }
   catch { return fallback; }
@@ -57,7 +57,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
       if (controller.signal.aborted) return;
       const updated = applyInjurySnapshot(readHistory(key, history.current), data);
       history.current = updated.history;
-      try { localStorage.setItem(key, JSON.stringify(updated.history)); setStorageFailed(false); }
+      try { localStorage.removeItem(key.replace("fantasy-injury:v2:", "fantasy-injury:v1:")); localStorage.setItem(key, JSON.stringify(updated.history)); setStorageFailed(false); }
       catch { setStorageFailed(true); }
       setView({ data, ...updated }); setError("");
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "傷病資料暫時無法取得。"); })
@@ -84,24 +84,15 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
     <UpdateNotice status={data?.updateStatus} />
     {data?.warnings.map((warning) => <p key={warning} className="inline-notice warning">{warning}</p>)}
     {data && data.status !== "historical" ? <>
-      <h3 className="injury-section-title">可以補誰</h3>
-      <div className="injury-card-grid">{data.opportunities.map((opportunity) => {
-        const star = players.get(opportunity.injuredKey), backup = players.get(opportunity.beneficiaryKey);
-        if (!star || !backup) return null;
-        const baseline = view?.history.healthyBaselines.find((entry) => entry.playerKey === star.playerKey && entry.team === star.team && entry.minutes >= 24 && Date.parse(entry.observedAt) < Date.parse(data.updateStatus?.fetchedAt ?? data.generatedAt));
-        const credible = opportunity.benefiting && baseline && data.status === "complete" && !data.updateStatus?.stale;
-        return <article key={opportunity.id} className="injury-card">
-          <p className="eyebrow">{injuryState(star.status) === "watch" ? "傷病觀察，尚未確認缺陣" : baseline ? "主力缺陣觀察" : "傷病候選 · 健康期基準未確認"} · {star.status}</p>
-          <p className="injury-relationship">{star.name} → {backup.name}</p>
-          <div className="player-cell"><PlayerAvatar name={backup.name} headshotUrl={backup.headshotUrl} /><span><strong>{backup.name}</strong><small>{backup.team} · {backup.position}</small></span></div>
-          <p className="injury-evidence">{opportunity.benefiting ? "近期輪替受益（相關性推估）" : "同隊相近位置，僅列觀察；尚無足夠接班證據。"}</p>
-          <p className="injury-evidence">近 7 天：{minutes(backup.weekMinutes)}／場（{backup.weekGames ?? "—"} 場）；近 30 天：{minutes(backup.monthMinutes)}／場{opportunity.minutesDelta !== null ? `；變化 ${opportunity.minutesDelta >= 0 ? "+" : ""}${opportunity.minutesDelta.toFixed(1)} 分鐘` : ""}</p>
-          <p className="injury-evidence">{baseline ? `曾在無傷病標記時觀察到 ${baseline.minutes.toFixed(1)} 分鐘／場的基準。` : "Yahoo 未提供已確認的健康期；不直接宣稱一定接替主力。"}</p>
-          <div className="tag-list"><span className="watch-tag">可信程度：{credible ? "中（規則推估）" : "低"}</span>{opportunity.helps.map((help) => <span key={help} className="help-tag">{help}</span>)}</div>
-          <p className="injury-evidence">{opportunity.score !== null ? `目前推薦分數 ${opportunity.score.toFixed(2)}；沿用分類需求排序。` : "未進入目前前 50 名推薦，請同時評估賽程與分類需求。"}</p>
-        </article>;
-      })}</div>
-      {!data.opportunities.length ? <p className="injury-message">目前沒有符合條件的可取得替補，或缺少足夠的狀態與輪替資料。</p> : null}
+      <h3 className="injury-section-title">精選補人</h3>
+      <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} />)}</div>
+      {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補，不代表需要補人。{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}
+      <details className="injury-watchlist">
+        <summary>觀察名單（{data.watchlist.length}）</summary>
+        <p className="injury-message">傷病待確認、正向增幅樣本不足或來源受限，暫不列為精選；觀察名單不建立新的復出追蹤。</p>
+        <div className="injury-card-grid">{data.watchlist.map((item) => <OpportunityCard key={item.id} item={item} players={players} />)}</div>
+        {!data.watchlist.length ? <p className="injury-message">目前沒有符合條件的觀察候選。</p> : null}
+      </details>
       <h3 className="injury-section-title">考慮釋出／重新評估</h3>
       {!loading && !error ? <div className="injury-card-grid">{view?.alerts.map((alert) => <article key={alert.id} className="injury-card injury-return-card">
         <p className="eyebrow">{alert.confirmed ? "已恢復出賽" : "傷病標記解除，可能復出（待確認）"}</p>
@@ -116,4 +107,25 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
       <p className="injury-message">觀察時間：{new Date(data.updateStatus?.fetchedAt ?? data.generatedAt).toLocaleString()}。規則尚未經回測驗證，不會自動加人或丟人。</p>
     </> : null}
   </div>;
+}
+
+function OpportunityCard({ item, players }: { item: InjuryOpportunity; players: Map<string, InjuryResponse["players"][number]> }) {
+  const backup = players.get(item.beneficiaryKey);
+  if (!backup) return null;
+  const reasons = {
+    "rotation-gain": "近期輪替受益（相關性推估）",
+    "unconfirmed-absence": "傷病觀察，尚未確認缺陣",
+    "small-sample": "上場時間有正向變化，但出賽樣本不足",
+    "limited-data": "來源不完整或使用備援資料，暫列觀察",
+  };
+  return <article className="injury-card">
+    <p className="eyebrow">{item.group === "featured" ? "精選補人" : "觀察候選"} · {item.relatedInjuries.map((entry) => players.get(entry.playerKey)?.status).filter(Boolean).join("／")}</p>
+    <p className="injury-relationship">{item.relatedInjuries.map((entry) => players.get(entry.playerKey)?.name ?? entry.playerKey).join("、")} → {backup.name}</p>
+    <div className="player-cell"><PlayerAvatar name={backup.name} headshotUrl={backup.headshotUrl} /><span><strong>{backup.name}</strong><small>{backup.team} · {backup.position}</small></span></div>
+    <p className="injury-evidence">{reasons[item.reason]}</p>
+    {item.relatedInjuries.map((entry) => <p key={entry.playerKey} className="injury-evidence">傷員基準：{players.get(entry.playerKey)?.name} · {entry.period === "lastmonth" ? "近 30 天" : "賽季"} {entry.games} 場、{entry.minutes.toFixed(1)} 分鐘／場（平均時間代理，非已確認傷前健康期）。</p>)}
+    <p className="injury-evidence">近 7 天：{backup.weekMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.weekGames ?? "—"} 場）；近 30 天：{backup.monthMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.monthGames ?? "—"} 場）；變化 +{item.minutesDelta.toFixed(1)} 分鐘。</p>
+    <div className="tag-list"><span className="watch-tag">可信程度：{item.group === "featured" ? "中・規則推估" : "低"}</span>{item.helps.map((help) => <span key={help} className="help-tag">{help}</span>)}</div>
+    <p className="injury-evidence">目前推薦分數 {item.score.toFixed(2)}；沿用所選聯盟與隊伍的推薦需求排序。</p>
+  </article>;
 }
