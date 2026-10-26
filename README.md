@@ -330,3 +330,30 @@ panels retain their evidence. Homogeneous score units are explained once in the
 header, with per-player hints reserved for mixed units. Basic/custom stat
 definitions remain in the guide. Injury responses optionally carry their existing recommendation
 `scoreType` so those hints also use the correct units; scoring is unchanged.
+
+### Public homepage and search indexing
+
+The canonical public origin is `https://www.fantasybasketball.fun` (defined in
+`lib/seo.ts`). Anonymous visitors to `/` receive a server-rendered feature
+introduction with `index, follow` and a self-referencing canonical URL. Signed-in
+visitors still see the dashboard at `/`, with `noindex, nofollow`. The route is
+always dynamic so public and authenticated HTML are not shared in a CDN cache.
+The introduction makes no Yahoo or data API requests and contains no league data.
+
+Root layout defaults remain `noindex, nofollow` for login, draft, guide and unknown
+pages. APIs also return `X-Robots-Tag: noindex, nofollow`. Preview homepages retain
+`noindex`; production homepages override the private default. `/sitemap.xml`
+contains only the public canonical homepage. `/robots.txt` allows crawling pages
+so Google can read intentional private-page `noindex` tags, and disallows `/api/`.
+Authentication and league authorization remain the actual access protection.
+
+The former `fantasyoveralldashbaord.vercel.app` hostname was observed returning
+Vercel `DEPLOYMENT_NOT_FOUND`; it is not the canonical origin. After production
+rollout, verify the new domain in Google Search Console, submit
+`https://www.fantasybasketball.fun/sitemap.xml`, and inspect/request indexing for
+the public homepage. The existing Google verification file remains in `public/`.
+Private login/workspace URLs being excluded by noindex is intentional. If the old
+hostname is restored under the same Vercel project, configure a permanent redirect
+to the new origin in Vercel; application code cannot redirect a deployment-not-found
+response that never reaches the application. Indexing requires Google to recrawl
+and is not guaranteed immediately after deployment.

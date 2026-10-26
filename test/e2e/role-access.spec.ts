@@ -35,5 +35,8 @@ test("pre-role sessions require a fresh login", async ({ page }) => {
   const signature = createHmac("sha256", "local-preview-signing-secret-at-least-32-characters").update(payload).digest("base64url");
   await page.context().addCookies([{ name: "fantasy_session", value: `${payload}.${signature}`, domain: "127.0.0.1", path: "/", httpOnly: true }]);
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: /看懂對戰/ })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "League", exact: true })).toHaveCount(0);
+  await page.goto("/draft");
   await expect(page).toHaveURL(/\/login$/);
 });

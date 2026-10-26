@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, LockKeyhole } from "lucide-react";
@@ -77,6 +78,7 @@ export function LoginForm() {
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         </form>
+        <Link href="/" className="login-home-link">← 查看網站介紹</Link>
       </section>
       <p className="login-footnote">Yahoo credentials stay on the server.</p>
     </main>

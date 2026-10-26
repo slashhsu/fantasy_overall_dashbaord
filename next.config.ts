@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["fast-xml-parser"],
   turbopack: { root: process.cwd() },
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [{ source: "/(.*)", headers: securityHeaders }, { source: "/api/:path*", headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] }];
   },
 };
 
