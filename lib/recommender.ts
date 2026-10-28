@@ -158,6 +158,7 @@ export interface RecommendationOptions {
   standingsTeams?: LeagueTeamStats[];
   selectedTeamKey?: string;
   scheduleGames?: ScheduleGame[];
+  onNetProjection?: (key: string, projection: PlayerProjection, usable: boolean) => void;
   now?: Date;
 }
 
@@ -184,6 +185,7 @@ interface PlayerProjection {
   player: FreeAgent;
   rates: Record<string, number>;
   sampleSize: number;
+  extraCounts?: Record<string, number>;
 }
 
 const firstStatValue = (stats: Record<string, number> | undefined, candidates: string[]) => {
@@ -473,6 +475,7 @@ const categoryContribution = (category: string, projection: PlayerProjection) =>
   }
   const candidates = COUNT_STATS[category];
   if (!candidates) return undefined;
+  if (projection.extraCounts && category in projection.extraCounts) return { value: projection.extraCounts[category] };
   const key = Object.entries(PROJECTION_STATS).find(([, names]) => names === candidates)?.[0];
   if (key) return { value: projection.rates[key] ?? 0 };
   return { value: rawBlendedRate(projection.player, category, candidates) };
@@ -484,6 +487,15 @@ const subtractProjection = (candidate: PlayerProjection, displaced?: PlayerProje
   rates: Object.fromEntries(
     Object.keys(candidate.rates).map((key) => [key, candidate.rates[key] - (displaced?.rates[key] ?? 0)]),
   ),
+});
+
+// Extra supported counting categories have no canonical rate key; retain their net totals too.
+const weeklyCounts = (net: PlayerProjection, displaced: PlayerProjection | undefined, usable: boolean): PlayerProjection => ({
+  ...net,
+  extraCounts: Object.fromEntries(Object.entries(COUNT_STATS)
+    .filter(([, candidates]) => !Object.values(PROJECTION_STATS).includes(candidates))
+    .map(([category, candidates]) => [category, !usable ? 0 : rawBlendedRate(net.player, category, candidates)
+      - (displaced ? rawBlendedRate(displaced.player, category, candidates) : 0)])),
 });
 
 interface ProbabilityScore {
@@ -902,6 +914,7 @@ export const recommendFreeAgentsProbability = (
     .map((player): Recommendation => {
       const projection = projections.get(player.playerKey) ?? projectPlayer(player, priors);
       let netProjection = projection;
+    let displacedProjection: PlayerProjection | undefined;
       let lineupImpact: Recommendation["lineupImpact"] = {
         status: "unknown",
         label: options.lineupAvailable === false ? "Lineup unavailable" : "Full game value",
@@ -920,7 +933,8 @@ export const recommendFreeAgentsProbability = (
         } else {
           const newKeys = new Set(withCandidate.slots.map(({ player: assigned }) => assigned.projection.player.playerKey));
           const displaced = baselineAssignment.slots.find(({ player: assigned }) => !newKeys.has(assigned.projection.player.playerKey));
-          netProjection = subtractProjection(projection, displaced?.player.projection);
+          displacedProjection = displaced?.player.projection;
+          netProjection = subtractProjection(projection, displacedProjection);
           lineupImpact = displaced
             ? {
               status: "replaces",
@@ -932,6 +946,7 @@ export const recommendFreeAgentsProbability = (
         }
       }
 
+      options.onNetProjection?.(player.playerKey, weeklyCounts(netProjection, displacedProjection, lineupImpact.status !== "not-started"), lineupImpact.status !== "not-started");
       const scored = probabilityScore(needs, netProjection, targetDate, scoringFormat);
       const sortedImpacts = [...scored.impacts].sort((left, right) => right.delta - left.delta);
       const reason = sortedImpacts
@@ -1085,6 +1100,7 @@ const objectiveRecommendations = (
   return pool.map((player): Recommendation => {
     const projection = projections.get(player.playerKey) as PlayerProjection;
     let netProjection = projection;
+    let displacedProjection: PlayerProjection | undefined;
     let lineupImpact: Recommendation["lineupImpact"] = { status: "unknown", label: options.lineupAvailable === false ? "Lineup unavailable" : "Full game value" };
     if (baseline && options.lineupAvailable !== false) {
       const withCandidate = optimizeLineup([...rosterAssignments, { projection, utility: evaluate(projection).score }], slots);
@@ -1095,12 +1111,14 @@ const objectiveRecommendations = (
       } else {
         const nextKeys = new Set(withCandidate.slots.map(({ player: item }) => item.projection.player.playerKey));
         const displaced = baseline.slots.find(({ player: item }) => !nextKeys.has(item.projection.player.playerKey));
-        netProjection = subtractProjection(projection, displaced?.player.projection);
+        displacedProjection = displaced?.player.projection;
+          netProjection = subtractProjection(projection, displacedProjection);
         lineupImpact = displaced
           ? { status: "replaces", label: `Starts over ${displaced.player.projection.player.name}`, slot: candidateSlot.slot, displacedPlayer: displaced.player.projection.player.name }
           : { status: "fills", label: `Fills ${candidateSlot.slot.toUpperCase()}`, slot: candidateSlot.slot };
       }
     }
+      options.onNetProjection?.(player.playerKey, weeklyCounts(netProjection, displacedProjection, lineupImpact.status !== "not-started"), lineupImpact.status !== "not-started");
     const raw = evaluate(netProjection);
     const riskAdjusted = raw.score * injuryMultiplier(player);
     const confidence = confidenceDetails(projection);
@@ -1152,4 +1170,49 @@ export const recommendFreeAgents = (
     return recommendFreeAgentsBlended(freeAgents, needs, options);
   }
   return recommendFreeAgentsBaseline(freeAgents, needs, options);
+};
+
+
+// Aggregate daily net projections, never daily scores or category probabilities.
+export const recommendRemainingWeek = (
+  freeAgents: FreeAgent[], needs: MatchupCategoryRow[], options: RecommendationOptions,
+  days: Array<{ date: string; games: ScheduleGame[]; roster: RosterPlayer[] }>,
+): Recommendation[] => {
+  const totals = new Map<string, { projection: PlayerProjection; usable: number; games: number; row?: Recommendation }>();
+  for (const day of days) {
+    const dayOptions: RecommendationOptions = { ...options, targetDate: day.date, roster: day.roster,
+      scheduleGames: day.games, teamsPlaying: day.games.filter((g) => g.status === "scheduled" && g.startTime && Date.parse(g.startTime) > (options.now ?? new Date()).getTime()).flatMap((g) => [g.homeTeam, g.awayTeam]),
+      strictGameDay: true, lineupAvailable: true, topN: freeAgents.length,
+      onNetProjection: (key, projection, usable) => {
+        if (!availableLineupSlots(dayOptions).length) { usable = false; projection = { ...projection, rates: Object.fromEntries(Object.keys(projection.rates).map((key) => [key, 0])), extraCounts: Object.fromEntries(Object.keys(projection.extraCounts ?? {}).map((key) => [key, 0])) }; }
+        const total = totals.get(key) ?? { projection: { ...projection, rates: {}, extraCounts: {} }, usable: 0, games: 0 };
+        for (const [stat, value] of Object.entries(projection.rates)) total.projection.rates[stat] = (total.projection.rates[stat] ?? 0) + value;
+        for (const [stat, value] of Object.entries(projection.extraCounts ?? {})) total.projection.extraCounts![stat] = (total.projection.extraCounts![stat] ?? 0) + value;
+        total.usable += Number(usable); total.games++; totals.set(key, total);
+      },
+    };
+    const rows = options.scoringFormat === "points" || options.scoringFormat === "rotisserie"
+      ? objectiveRecommendations(freeAgents, dayOptions, options.scoringFormat)
+      : recommendFreeAgentsProbability(freeAgents, needs, dayOptions);
+    for (const row of rows) { const total = totals.get(row.playerKey); if (total) total.row ??= row; }
+  }
+  return [...totals.values()].filter((total) => total.row).map(({ projection, row, usable, games }) => {
+    const original = row!;
+    const format = options.scoringFormat ?? "each-category";
+    const categoryScore = probabilityScore(needs, projection, days[0]?.date ?? options.targetDate ?? "", format);
+    const objective = format === "points" ? pointsObjective(projection, options.categories ?? [])
+      : format === "rotisserie" ? rotoObjective(projection, options.categories ?? [], options.standingsTeams ?? [], options.selectedTeamKey) : undefined;
+    const rawScore = objective?.score ?? categoryScore.score;
+    const score = round(rawScore * injuryMultiplier(projection.player), 4);
+    const impacts = [...categoryScore.impacts].sort((a, b) => b.delta - a.delta);
+    return { ...original, score, rawScore, riskAdjustedScore: score,
+      scoreType: format === "points" ? "fantasy-points" as const : format === "rotisserie" ? "roto-points" as const : categoryScore.scoreType,
+      remainingGames: games, usableGames: usable, remainingGamesComplete: true,
+      categoryImpacts: objective ? [] : impacts,
+      reason: objective?.reasons ?? impacts.filter((i) => i.delta > .001).slice(0, 3).map((i) => `${i.displayName} +${round(i.delta * 100, 1)}pp`),
+      watchouts: [...(objective?.watchouts ?? impacts.filter((i) => i.delta < -.001).slice(-2).map((i) => `${i.displayName} ${round(i.delta * 100, 1)}pp`)), "整週規則推估，未經整週回測"],
+      gameToday: days.some((d) => d.date === options.targetDate && d.games.some((g) => g.homeTeam === original.team || g.awayTeam === original.team)),
+      lineupImpact: { status: "unknown" as const, label: `預估可排入 ${usable} 場` },
+    };
+  }).sort((a, b) => b.score - a.score || a.playerKey.localeCompare(b.playerKey)).slice(0, options.topN ?? 50);
 };

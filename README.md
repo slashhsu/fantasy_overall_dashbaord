@@ -357,3 +357,33 @@ hostname is restored under the same Vercel project, configure a permanent redire
 to the new origin in Vercel; application code cannot redirect a deployment-not-found
 response that never reaches the application. Indexing requires Google to recrawl
 and is not guaranteed immediately after deployment.
+
+### Remaining-week recommendations
+
+The dashboard defaults to `remaining-week`; API clients omitting
+`recommendationHorizon` retain the original `daily` behavior. Both modes show
+remaining NBA games from the streaming date (clamped to today and Yahoo's actual
+matchup start) through the matchup end. Game-week calendar dates are used when
+scoreboard dates are missing; no fixed seven-day assumption is made. Schedule
+queries pad both date boundaries, deduplicate tipoffs, and assign them to the
+selected timezone. Started, completed, postponed and unverifiable games do not
+count as confirmed remaining games. Counts describe team fixtures, not a promise
+that a player will appear.
+
+Weekly scoring considers the entire eligible pool, including players off on the
+streaming date, before selecting 50 results. Each day's dated roster and active
+slots are optimized with and without a candidate. Locked starters continue to
+occupy slots. The model aggregates net projected counts and shot attempts, then
+recalculates category probability, Fantasy points or Roto rank value once. Daily
+scores/probabilities are never multiplied by games or added together. Displayed
+PTS/REB/etc remain per-game forecasts. Usable games are a model estimate, not
+actual Yahoo additions, drops or future transactions. Weekly scoring is a rule
+estimate with no weekly backtest validation; the existing daily model is unchanged.
+
+Raw dated schedules/rosters reuse the five-minute shared cache, inflight merging,
+60-second refresh cooldown, stale reporting and Yahoo request gate. Producers
+are bounded to two tasks. Missing/stale schedules or insufficient roster data
+stop weekly scoring and show a reason with the daily-mode selector still usable;
+partial game counts are labelled as confirmed lower bounds, never complete zeros.
+The authenticated guide shares the weekly model annotation. No new public API or
+external data service is introduced.

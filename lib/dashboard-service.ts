@@ -1,10 +1,12 @@
 import "server-only";
 
+import { loadRecommendationPeriod } from "@/lib/recommendation-period";
+import { normalizeTeamAbbreviation } from "@/lib/stats";
 import { withCache } from "@/lib/cache";
 import { getRuntimeConfig, isDemoMode } from "@/lib/config";
 import { demoCategories, demoFreeAgents, demoLeagues, demoTeamsPlaying, getDemoMatchups } from "@/lib/demo-data";
 import { fetchNbaSchedule } from "@/lib/nba-schedule";
-import { categoryValidationCoverage, evaluateMatchup, recommendFreeAgents, toNumber } from "@/lib/recommender";
+import { categoryValidationCoverage, evaluateMatchup, recommendFreeAgents, recommendRemainingWeek, toNumber } from "@/lib/recommender";
 import { RECOMMENDER_MODEL } from "@/lib/recommender-model";
 import type { DashboardResponse, DataQualitySummary, LeagueConfiguration, LeagueSummary, LeagueTeamStats, Matchup, RosterSnapshot, ScheduleInfo } from "@/lib/types";
 import { ValidationError } from "@/lib/errors";
@@ -37,6 +39,7 @@ interface DashboardOptions {
   matchupId?: string;
   teamKey?: string;
   forceRefresh?: boolean;
+  recommendationHorizon?: "daily" | "remaining-week";
 }
 
 const findSelectedMatchup = (
@@ -192,7 +195,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       const rosterResult = await withCache(
         `roster:${selectedTeam.teamKey}:${options.targetDate}`,
         cacheTtlSeconds,
-        () => fetchRoster(league.leagueKey, selectedTeam.teamKey, options.targetDate),
+        () => fetchRoster(league.leagueKey, selectedTeam.teamKey, options.targetDate, Boolean(options.forceRefresh)),
         Boolean(options.forceRefresh),
       );
       roster = rosterResult.value;
@@ -205,7 +208,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       };
     }
   }
-  const recommendations = recommendFreeAgents(base.freeAgents, categoryNeeds, {
+  const recommendationOptions = {
     teamsPlaying: base.teamsPlaying,
     strictGameDay: base.schedule.status === "available",
     targetDate: options.targetDate,
@@ -218,9 +221,21 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     standingsTeams: base.standings,
     selectedTeamKey: selectedTeam.teamKey,
     topN: 50,
-  });
+  };
+  const weekly = options.recommendationHorizon === "remaining-week";
+  const remaining = await loadRecommendationPeriod({ league, matchup: selectedMatchup, date: options.targetDate, timeZone: options.timeZone, teamKey: selectedTeam.teamKey, ttl: cacheTtlSeconds, force: Boolean(options.forceRefresh), weekly, demo: demoMode });
+  if (weekly && remaining.days.length && !base.configuration.rosterPositions.length) { remaining.period.status = "partial"; remaining.period.message = "Yahoo 未提供陣容位置設定，無法計算整週可排入場次；請切回當日模式。"; }
+  if (weekly && base.configuration.scoringFormat === "rotisserie" && base.standings.length < 2) { remaining.period.status = "partial"; remaining.period.message = "聯盟排名數據不足，無法可靠計算整週 Roto 價值；請稍後重試。"; }
+  const recommendations = (weekly
+    ? remaining.period.status === "complete" ? recommendRemainingWeek(base.freeAgents, categoryNeeds, recommendationOptions, remaining.days) : []
+    : recommendFreeAgents(base.freeAgents, categoryNeeds, recommendationOptions)).map((row) => ({ ...row,
+      remainingGames: remaining.period.status === "unavailable" ? null : remaining.counts.get(normalizeTeamAbbreviation(row.team)) ?? 0,
+      remainingGamesComplete: remaining.scheduleComplete !== false,
+    }));
 
   return {
+    recommendationHorizon: options.recommendationHorizon ?? "daily",
+    recommendationPeriod: remaining.period,
     generatedAt: new Date().toISOString(),
     cached: cached && leagueResult.cached,
     demoMode,
@@ -237,7 +252,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     matchups: base.matchups,
     categoryNeeds,
     schedule: base.schedule,
-    model: RECOMMENDER_MODEL,
+    model: weekly ? { ...RECOMMENDER_MODEL, selectionStatus: "baseline-retained", backtestMessage: "整週規則推估，未經整週回測；不能沿用單場模型的驗證結果。", validationLabel: "整週模式未經回測" } : RECOMMENDER_MODEL,
     dataQuality: base.dataQuality,
     categoryCoverage: base.configuration.categories.filter((category) => category.enabled).map((category) => ({
       statId: category.statId,
@@ -249,8 +264,8 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       teams: base.standings,
       message: base.standings.length ? undefined : "League standings were unavailable.",
     },
-    lineupAvailable: roster.available,
-    lineupMessage: roster.message,
+    lineupAvailable: weekly ? remaining.period.status === "complete" : roster.available,
+    lineupMessage: weekly ? remaining.period.message : roster.message,
     teamsPlaying: base.teamsPlaying,
     freeAgentCount: base.freeAgents.length,
     recommendations,

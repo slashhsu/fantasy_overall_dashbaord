@@ -1,5 +1,6 @@
 // Shared by inline annotations and the authenticated guide. No Yahoo requests.
 export const HELP = {
+  weeklyRecommendation: ["推薦與摘要", "本週剩餘推薦", "從所選串流日期起至 Yahoo 週次結束，排除已開賽、完賽與延賽。NBA 場次不等於球員確定出賽。模型逐日比較加入球員前後的陣容淨貢獻，再以整段累計重新計算 Swing（預期分類增益）、對戰勝率增益、Net FP（Fantasy points）或 Roto gain（排名積分），不直接相加每日分數。預估可排入場次為位置與空位推估，不含實際加退成本；未來名單可能變動。本模式未經整週回測，不能沿用單場模型驗證聲明。"],
   league: ["聯盟與隊伍", "League", "目前查看的 Fantasy 聯盟。一般用戶只會看到獲授權的聯盟；切換聯盟會載入該聯盟的設定與資料，不會修改 Yahoo 名單。"],
   week: ["聯盟與隊伍", "Week", "Yahoo 聯盟賽程週次，包含歷史與未來週，不保證固定七天。切換會更新對戰與週報；未來週可能尚無數據。"],
   date: ["聯盟與隊伍", "Streaming date", "推薦補人的目標日期，配合所選時區判斷 NBA 賽程與開賽鎖定；不等於所選週次，也不會把歷史日期套用今天的傷病。"],
@@ -59,7 +60,7 @@ export const HELP = {
 } as const;
 export type HelpKey = keyof typeof HELP;
 // Only these computed model concepts may appear as workspace hint icons.
-export const MODEL_HELP_KEYS = ["inPlay", "swing", "probability", "expectedCategories", "categoryFit", "netFp", "rotoGain", "confidence", "lineup", "helps", "scoreResult", "priority", "injury", "injuryMinutes", "returns", "draftScore", "fit", "scarcity", "estimatedReturn", "price", "modelSlot", "modelWhy", "categoryProfile", "zScore"] as const satisfies readonly HelpKey[];
+export const MODEL_HELP_KEYS = ["weeklyRecommendation", "inPlay", "swing", "probability", "expectedCategories", "categoryFit", "netFp", "rotoGain", "confidence", "lineup", "helps", "scoreResult", "priority", "injury", "injuryMinutes", "returns", "draftScore", "fit", "scarcity", "estimatedReturn", "price", "modelSlot", "modelWhy", "categoryProfile", "zScore"] as const satisfies readonly HelpKey[];
 export type ModelHelpKey = typeof MODEL_HELP_KEYS[number];
 export const HELP_USAGE = Object.fromEntries(Object.keys(HELP).map((key) => [key, (MODEL_HELP_KEYS as readonly string[]).includes(key) ? "model" : "guide-only"])) as Record<HelpKey, "model" | "guide-only">;
 export const scoreTopic = (type: string): ModelHelpKey => ({ "matchup-probability": "probability", "expected-categories": "expectedCategories", "fantasy-points": "netFp", "roto-points": "rotoGain", "blended-z-score": "categoryFit", "legacy-z-score": "categoryFit" } as Record<string, ModelHelpKey>)[type] ?? "swing";

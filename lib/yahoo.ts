@@ -1,5 +1,6 @@
 import "server-only";
 
+import { withCache } from "@/lib/cache";
 import { getRuntimeConfig } from "@/lib/config";
 import { compactCategoryName, canonicalCategoryName, normalizeTeamAbbreviation, statNameForId } from "@/lib/stats";
 import type {
@@ -662,21 +663,23 @@ export const fetchRoster = async (
   leagueKey: string,
   teamKey: string,
   date: string,
+  forceRefresh = false,
 ): Promise<RosterSnapshot> => {
   const metadata = parseRoster(await fetchYahooXml(`/team/${teamKey}/roster;date=${date}/players`));
   if (!metadata.length) return { available: true, players: [] };
   const gameKey = leagueKey.split(".l.")[0] ?? "";
 
+  let statsStale = false;
   const windowsByPlayer = new Map<string, FreeAgent[]>();
-  for (const playerChunk of chunked(metadata, 25)) {
+  for (const playerChunk of chunked([...metadata].sort((a, b) => a.playerKey.localeCompare(b.playerKey)), 25)) {
     const playerKeys = playerChunk.map((player) => player.playerKey).join(",");
     const responses = await Promise.allSettled(
-      PERIODS.map(async (period) => ({
-        period,
-        xml: await fetchYahooXml(
-          `/game/${gameKey}/players;player_keys=${playerKeys}/stats;type=${period}`,
-        ),
-      })),
+      PERIODS.map(async (period) => {
+        const result = await withCache(`roster-stats:${gameKey}:${period}:${playerKeys}`, getRuntimeConfig().cacheTtlSeconds,
+          () => fetchYahooXml(`/game/${gameKey}/players;player_keys=${playerKeys}/stats;type=${period}`), forceRefresh);
+        statsStale ||= result.stale;
+        return { period, xml: result.value };
+      }),
     );
     for (const response of responses) {
       if (response.status !== "fulfilled") continue;
@@ -699,6 +702,7 @@ export const fetchRoster = async (
   });
   const playersWithStats = players.filter((player) => player.period !== "unavailable").length;
   return {
+    stale: statsStale,
     available: playersWithStats > 0,
     players,
     message: playersWithStats > 0 ? undefined : "Yahoo returned the dated roster without player stat windows.",

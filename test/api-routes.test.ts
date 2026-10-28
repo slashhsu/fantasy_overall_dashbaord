@@ -32,6 +32,15 @@ describe("private dashboard API", () => {
     expect((await matchupPlayers(new Request("http://localhost/api/matchup-players?leagueKey=demo.l.101&week=19&matchupId=foreign", { headers: { cookie } }))).status).toBe(400);
   });
 
+  it("validates recommendation horizons and preserves daily as the API default", async () => {
+    const session = await login(new Request("http://localhost/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "test-password" }) }));
+    const headers = { cookie: session.headers.get("set-cookie") ?? "" };
+    const base = "http://localhost/api/dashboard?leagueKey=demo.l.101&week=19&date=2030-01-01";
+    expect((await dashboard(new Request(`${base}&recommendationHorizon=bad`, { headers }))).status).toBe(400);
+    expect(await (await dashboard(new Request(base, { headers }))).json()).toMatchObject({ recommendationHorizon: "daily" });
+    expect(await (await dashboard(new Request(`${base}&recommendationHorizon=remaining-week`, { headers }))).json()).toMatchObject({ recommendationHorizon: "remaining-week", recommendations: [], recommendationPeriod: { status: "complete" } });
+  });
+
   it("sets a secure session and returns the dashboard response shape", async () => {
     const loginResponse = await login(new Request("http://localhost/api/login", {
       method: "POST",

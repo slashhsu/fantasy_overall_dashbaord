@@ -22,7 +22,7 @@ describe("weekly report week selector", () => {
       requests.push(url);
       const week = Number(url.searchParams.get("week"));
       if (week === 21) return { ok: false, status: 400, json: async () => ({ error: "No matchup data" }) };
-      const data = await getDashboard({ leagueKey: "demo.l.101", week, targetDate: "2026-10-22", timeZone: "America/New_York", teamKey: url.searchParams.get("teamKey") || undefined });
+      const data = await getDashboard({ leagueKey: "demo.l.101", week, targetDate: url.searchParams.get("date")!, timeZone: url.searchParams.get("timeZone")!, recommendationHorizon: url.searchParams.get("recommendationHorizon") as "daily" | "remaining-week", teamKey: url.searchParams.get("teamKey") || undefined });
       return { ok: true, json: async () => data };
     }));
     render(<DashboardApp />);

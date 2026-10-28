@@ -228,6 +228,7 @@ export interface RosterPlayer extends FreeAgent {
 }
 
 export interface RosterSnapshot {
+  stale?: boolean;
   available: boolean;
   players: RosterPlayer[];
   message?: string;
@@ -255,6 +256,9 @@ export interface Recommendation {
   position: string;
   team: string;
   headshotUrl?: string;
+  remainingGames?: number | null;
+  usableGames?: number | null;
+  remainingGamesComplete?: boolean;
   gameToday: boolean;
   gameVerified: boolean;
   period: FreeAgent["period"];
@@ -348,7 +352,17 @@ export interface StandingsContext {
   message?: string;
 }
 
+export interface RecommendationPeriod {
+  startDate: string | null;
+  endDate: string | null;
+  timeZone: string;
+  status: "complete" | "partial" | "unavailable";
+  message?: string;
+}
+
 export interface DashboardResponse {
+  recommendationHorizon?: "daily" | "remaining-week";
+  recommendationPeriod?: RecommendationPeriod;
   updateStatus?: UpdateStatus;
   generatedAt: string;
   cached: boolean;

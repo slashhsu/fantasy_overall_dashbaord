@@ -20,6 +20,8 @@ export async function GET(request: Request) {
     const week = Number(url.searchParams.get("week"));
     const targetDate = url.searchParams.get("date")?.trim() ?? "";
     const timeZone = url.searchParams.get("timeZone")?.trim() ?? "America/New_York";
+    const recommendationHorizon = url.searchParams.get("recommendationHorizon") ?? "daily";
+    if (recommendationHorizon !== "daily" && recommendationHorizon !== "remaining-week") throw new ValidationError("Invalid recommendationHorizon.");
     const matchupId = url.searchParams.get("matchupId")?.trim() || undefined;
     if (!leagueKey) throw new ValidationError("leagueKey is required.");
     if (!Number.isInteger(week) || week < 1 || week > 30) throw new ValidationError("week must be a valid number.");
@@ -28,6 +30,7 @@ export async function GET(request: Request) {
 
     if (!canAccessLeague(session, leagueKey)) return forbidden();
     const dashboard = await withUpdateStatus(() => getDashboard({
+      recommendationHorizon,
       leagueKey,
       week,
       targetDate,

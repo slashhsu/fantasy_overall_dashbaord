@@ -4,6 +4,7 @@ const login = async (page: import("@playwright/test").Page) => {
   await page.goto("/login");
   await page.getByLabel("Dashboard password").fill("local-preview-password");
   await page.getByRole("button", { name: "Open dashboard" }).click();
+  await page.getByLabel("推薦期間", { exact: true }).selectOption("daily");
   await expect(page).toHaveURL(/\/$/);
 };
 

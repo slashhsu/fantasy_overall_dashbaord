@@ -90,7 +90,7 @@ export const gamesFromBalldontlie = (data: BalldontlieResponse, targetDate: stri
 export const gamesFromEspn = (data: EspnResponse, targetDate = ""): ScheduleGame[] =>
   (data.events ?? []).flatMap((event, index) => {
     const statusName = event.status?.type?.name ?? "";
-    const status = gameStatus(event.status?.type?.state ?? statusName, event.status?.type?.completed);
+    const status = gameStatus(/POSTPONED|CANCELED/.test(statusName.toUpperCase()) ? statusName : event.status?.type?.state ?? statusName, event.status?.type?.completed);
     if (status === "postponed") return [];
     const competitors = event.competitions?.[0]?.competitors ?? [];
     const teams = competitors.map((competitor) => normalizeTeamAbbreviation(competitor.team?.abbreviation ?? "")).filter(Boolean);

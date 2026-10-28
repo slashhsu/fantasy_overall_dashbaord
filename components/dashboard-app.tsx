@@ -35,7 +35,7 @@ import type {
 import { buildHeatmapRanges, heatmapCellStyle } from "@/lib/heatmap";
 
 type Tab = "recommendations" | "report" | "matchups" | "raw";
-type SortKey = "score" | "name" | "team" | keyof Recommendation["projections"];
+type SortKey = "remainingGames" | "usableGames" | "score" | "name" | "team" | keyof Recommendation["projections"];
 
 interface LeaguesResponse {
   leagues: LeagueSummary[];
@@ -114,6 +114,7 @@ export function DashboardApp() {
   const [leagueKey, setLeagueKey] = useState("");
   const [week, setWeek] = useState(1);
   const [timeZone, setTimeZone] = useState("America/New_York");
+  const [recommendationHorizon, setRecommendationHorizon] = useState<"daily" | "remaining-week">("remaining-week");
   const [targetDate, setTargetDate] = useState(() => dateInTimeZone("America/New_York"));
   const [matchupId, setMatchupId] = useState("");
   const [teamKey, setTeamKey] = useState("");
@@ -140,7 +141,7 @@ export function DashboardApp() {
     window.localStorage.setItem("fantasy-time-zone:v1", timeZone);
   }, [timeZone]);
 
-  const dashboard = dashboardData?.week === week && (!matchupId || dashboardData.selectedMatchupId === matchupId) && (!teamKey || dashboardData.selectedTeamKey === teamKey) && !error ? dashboardData : null;
+  const dashboard = dashboardData?.league.leagueKey === leagueKey && dashboardData.targetDate === targetDate && dashboardData.timeZone === timeZone && (dashboardData.recommendationHorizon ?? "daily") === recommendationHorizon && dashboardData?.week === week && (!matchupId || dashboardData.selectedMatchupId === matchupId) && (!teamKey || dashboardData.selectedTeamKey === teamKey) && !error ? dashboardData : null;
 
   const selectedLeague = useMemo(
     () => leagues.find((league) => league.leagueKey === leagueKey),
@@ -187,6 +188,7 @@ export function DashboardApp() {
       leagueKey,
       week: String(week),
       date: targetDate,
+      recommendationHorizon,
       timeZone,
     });
     const nextMatchupId = requestedMatchupId ?? matchupId;
@@ -203,7 +205,7 @@ export function DashboardApp() {
     } finally {
       if (currentRequest === requestNumber.current) setLoadingDashboard(false);
     }
-  }, [handleRequestError, leagueKey, matchupId, targetDate, timeZone, week, teamKey]);
+  }, [handleRequestError, leagueKey, matchupId, targetDate, timeZone, week, teamKey, recommendationHorizon]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -253,11 +255,12 @@ export function DashboardApp() {
     if (!dashboard) return [];
     const valueFor = (item: Recommendation) => {
       if (sortKey in item.projections) return item.projections[sortKey as keyof Recommendation["projections"]];
-      return item[sortKey as "score" | "name" | "team"];
+      return item[sortKey as "score" | "name" | "team" | "remainingGames" | "usableGames"];
     };
     return [...dashboard.recommendations].sort((left, right) => {
       const a = valueFor(left);
       const b = valueFor(right);
+      if (a == null || b == null) return a == null ? b == null ? 0 : 1 : -1;
       const comparison = typeof a === "number" && typeof b === "number"
         ? a - b
         : String(a).localeCompare(String(b));
@@ -446,6 +449,7 @@ export function DashboardApp() {
           {!loadingDashboard && !dashboard && !error ? (
             <EmptyState title="No dashboard data yet" detail="Choose a league to load its current matchup." />
           ) : null}
+          {activeTab === "recommendations" ? <div className="inline-notice"><label>推薦期間 <select aria-label="推薦期間" value={recommendationHorizon} onChange={(event) => { ++requestNumber.current; setRecommendationHorizon(event.target.value as "daily" | "remaining-week"); }}><option value="daily">當日</option><option value="remaining-week">本週剩餘</option></select></label></div> : null}
           {dashboard && activeTab === "recommendations" ? <InjuryAdvice leagueKey={leagueKey} teamKey={dashboard.selectedTeamKey} week={week} date={targetDate} timeZone={timeZone} refreshVersion={playerRefreshVersion} /> : null}
           {dashboard && activeTab === "recommendations" ? (
             <RecommendationsView
@@ -507,7 +511,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
     : gameDay
       ? "No available player has a game on the selected date."
       : "There are no NBA games on the selected date.";
-  const modelStatusLabel = dashboard.model.selectionStatus === "historical-validated"
+  const modelStatusLabel = dashboard.recommendationHorizon === "remaining-week" ? "整週推估・未回測" : dashboard.model.selectionStatus === "historical-validated"
     ? "Backtested"
     : "Baseline retained";
   const ariaSort = (key: SortKey): "ascending" | "descending" | "none" => {
@@ -519,7 +523,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
     <>
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Daily waiver board</p>
+          <p className="eyebrow">{dashboard.recommendationHorizon === "remaining-week" ? "Remaining-week waiver board" : "Daily waiver board"}</p>
           <h2>Best available players</h2>
           <p>{dashboard.freeAgentCount} available players analyzed by {dashboard.model.name}.</p>
         </div>
@@ -528,7 +532,8 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
           <details className="info-popover"><summary className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}><CalendarDays size={15} /><span>{scheduleLabel}</span></summary><div>{dashboard.schedule.message ?? `Source: ${dashboard.schedule.source ?? "none"}`}</div></details>
         </div>
       </div>
-      <p className="inline-notice">以下為單場預估，非當週實績</p>
+      <p className="inline-notice">下方 PTS／REB 等統計為單場預估，非當週實績。NBA 剩餘場次不保證球員實際出賽。</p>
+      {dashboard.recommendationPeriod ? <p className="inline-notice">計算區間：{dashboard.recommendationPeriod.startDate ?? "未知"} 至 {dashboard.recommendationPeriod.endDate ?? "未知"} · {dashboard.recommendationPeriod.timeZone}。{dashboard.recommendationPeriod.message}{dashboard.recommendationHorizon === "remaining-week" ? " 整週分數採每日陣容淨貢獻重新評分，屬未經整週回測的規則推估。" : ""}</p> : null}
       {dashboard.dataQuality.status !== "complete" || dashboard.dataQuality.stale ? (
         <div className="inline-notice warning"><AlertCircle size={15} />Yahoo data is {dashboard.dataQuality.stale ? "stale" : "partial"}. {dashboard.dataQuality.warnings.join(" ") || "Some stat windows were unavailable."}</div>
       ) : null}
@@ -538,7 +543,7 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
         <div className="inline-notice">{dashboard.lineupMessage} Recommendations show full-game value.</div>
       ) : null}
       {!recommendations.length ? (
-        <EmptyState title="No eligible streamers" detail={emptyDetail} />
+        <EmptyState title={dashboard.recommendationHorizon === "remaining-week" ? "沒有可用的整週推薦" : "No eligible streamers"} detail={dashboard.recommendationHorizon === "remaining-week" ? dashboard.recommendationPeriod?.message ?? "區間內沒有符合資格的球員；可切換至當日推薦。" : emptyDetail} />
       ) : (
         <div className="table-scroll">
           <table className="data-table recommendation-table">
@@ -548,7 +553,9 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                 <th aria-sort={ariaSort("name")}><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
                 <th aria-sort={ariaSort("team")}><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
                 <th>Game</th>
-                <th aria-sort={ariaSort("score")}><SortButton label={dashboard.objective === "fantasy-points" ? "Net FP" : dashboard.objective === "roto-points" ? "Roto gain" : "Swing"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /><HelpTip topic={scoreHelp.topic} label="推薦分數" /></th>
+                <th aria-sort={ariaSort("remainingGames")}><SortButton label="本週剩餘場次" column="remainingGames" active={sortKey === "remainingGames"} direction={sortDirection} onSort={onSort} /></th>
+                {dashboard.recommendationHorizon === "remaining-week" ? <th aria-sort={ariaSort("usableGames")}><SortButton label="預估可排入場次" column="usableGames" active={sortKey === "usableGames"} direction={sortDirection} onSort={onSort} /><HelpTip topic="weeklyRecommendation" /></th> : null}
+                <th aria-sort={ariaSort("score")}><SortButton label={dashboard.objective === "fantasy-points" ? "Net FP" : dashboard.objective === "roto-points" ? "Roto gain" : "Swing"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /><HelpTip topic={dashboard.recommendationHorizon === "remaining-week" ? "weeklyRecommendation" : scoreHelp.topic} label="推薦分數" /></th>
                 <th>Confidence<HelpTip topic="confidence" /></th>
                 <th className="lineup-column">Lineup<HelpTip topic="lineup" label="Lineup" /></th>
                 <th className="reason-column">Helps<HelpTip topic="helps" label="Helps" /></th>
@@ -570,6 +577,8 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
                   <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
+                  <td>{player.remainingGames == null ? "—" : `${player.remainingGamesComplete === false ? "已確認至少 " : ""}${player.remainingGames}`}</td>
+                  {dashboard.recommendationHorizon === "remaining-week" ? <td>{player.usableGames ?? "—"}</td> : null}
                   <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span>{scoreHelp.mixed ? <HelpTip topic={scoreTopic(player.scoreType)} label={`${player.name} 分數單位`} /> : null}</td>
                   <td><details className="info-popover confidence-popover"><summary className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence} {player.confidenceScore}</summary><div>{player.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></td>
                   <td className="lineup-column"><span className={`lineup-label ${player.lineupImpact.status}`}>{player.lineupImpact.label}</span></td>

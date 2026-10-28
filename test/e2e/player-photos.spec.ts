@@ -26,6 +26,7 @@ test("player portraits render and survive table scrolling on desktop and mobile"
   await page.goto("/login");
   await page.getByLabel("Dashboard password").fill("local-preview-password");
   await page.getByRole("button", { name: "Open dashboard" }).click();
+  await page.getByLabel("推薦期間", { exact: true }).selectOption("daily");
   const avatar = page.locator(".recommendation-table .player-avatar").first();
   const image = avatar.locator("img");
   await expect(image).toHaveClass(/is-loaded/);
