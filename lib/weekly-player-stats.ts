@@ -60,11 +60,26 @@ export function aggregateWeeklyPlayer(metadata: Omit<DailyPlayer, "stats">, date
       const values = dates.map((date) => valueOn(date, id));
       const known = values.filter((value): value is number => value !== null);
       if (known.length < dates.length) incompleteStats.push(id);
-      stats[id] = known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+      stats[id] = known.length || !dates.length ? known.reduce((sum, value) => sum + value, 0) : null;
     } else {
       stats[id] = null;
       incompleteStats.push(id);
     }
   }
   return { ...metadata, stats, missingDates, incompleteStats };
+}
+
+
+/** Only confirmed starting-lineup dates contribute; unknown ownership never borrows whole-week NBA stats. */
+export function aggregateTeamContribution(metadata: Omit<DailyPlayer, "stats">, rosterDates: string[], scoringDates: string[], unknownDates: string[], daily: Map<string, Map<string, DailyPlayer>>, statIds: string[]): WeeklyPlayer {
+  const ids = [...new Set([...statIds, ...statIds.flatMap((id) => ratios[id] ?? [])])];
+  const credited = [...new Set(scoringDates)].sort();
+  const player = aggregateWeeklyPlayer(metadata, credited, daily, ids);
+  player.rosterDates = [...new Set(rosterDates)].sort(); player.scoringDates = credited;
+  player.missingDates = [...new Set([...player.missingDates, ...unknownDates])].sort();
+  if (unknownDates.length) {
+    player.incompleteStats = [...new Set([...(player.incompleteStats ?? []), "0", ...ids])];
+    if (!scoringDates.length) for (const id of Object.keys(player.stats)) player.stats[id] = null;
+  }
+  return player;
 }

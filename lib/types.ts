@@ -402,6 +402,8 @@ export interface ApiErrorPayload {
 }
 
 export interface WeeklyPlayer {
+  rosterDates?: string[];
+  scoringDates?: string[];
   playerKey: string;
   name: string;
   team: string;
@@ -412,6 +414,7 @@ export interface WeeklyPlayer {
   incompleteStats?: string[];
 }
 export interface MatchupPlayersResponse {
+  statScope?: "fantasy-team-contribution";
   leagueKey: string;
   matchupId: string;
   week: number;
@@ -420,7 +423,7 @@ export interface MatchupPlayersResponse {
   throughDate: string | null;
   status: "complete" | "partial" | "not-started";
   categories: LeagueCategory[];
-  teams: { teamKey: string; name: string; players: WeeklyPlayer[]; missingRosterDates: string[] }[];
+  teams: { teamKey: string; name: string; players: WeeklyPlayer[]; missingRosterDates: string[]; scoreboardCheck?: { status: "matched" | "different" | "unavailable"; differences: { statId: string; displayName: string; playerTotal: number; teamTotal: number }[] } }[];
   updateStatus?: UpdateStatus;
   demoMode: boolean;
 }

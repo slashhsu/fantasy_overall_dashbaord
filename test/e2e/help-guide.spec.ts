@@ -74,7 +74,7 @@ test("dashboard, weekly details and matchups expose correct units without interf
   const weekly = page.locator(".weekly-player-table");
   await expect(weekly).toBeVisible();
   await expect(page.locator(".weekly-player-content .help-trigger")).toHaveCount(0);
-  await expect(page.locator(".weekly-player-content")).toContainText("球員加總不一定等於球隊週報比分");
+  await expect(page.locator(".weekly-player-content")).toContainText("只計入球員當天在此隊且排在有效先發位置");
   await page.getByRole("button", { name: "Matchups", exact: true }).click();
   await expect(page.locator(".matchup-table .help-trigger")).toHaveCount(0);
   await page.getByRole("button", { name: "Raw Data", exact: true }).click();

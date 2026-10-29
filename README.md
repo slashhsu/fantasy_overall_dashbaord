@@ -173,12 +173,19 @@ private session as the dashboard. `forceRefresh=true` uses the existing per-key
 60-second cooldown. Responses include the actual period, Pacific-time cutoff,
 team rosters, missing roster/stat dates, enabled categories and `updateStatus`.
 
-The roster is the union of everyone appearing on each team's daily rosters in
-the matchup period. Each athlete's numbers cover the **whole NBA week**, including
-bench days and days spent outside that fantasy team. A player may appear for both
-teams. These numbers are not the credited fantasy contributions and must not be
-summed to reconcile the team scoreboard.
+The roster lists everyone appearing on each team's daily roster during the
+matchup. Stats are **fantasy-team contributions**: only dates when Yahoo's dated
+roster places that player in an enabled starting slot contribute. BN/IL/NA days
+and days before joining or after leaving that team are excluded. Trades can put
+the same athlete in both tables, with separate scoring dates and totals. GP is
+credited appearances, not the athlete's whole NBA-week GP. Each row exposes its
+roster/scoring dates for audit. Unknown positions or missing roster dates mark
+attribution incomplete; they never fall back to whole-week NBA totals.
 
+The response identifies `statScope: fantasy-team-contribution`. Complete,
+comparable category totals are checked against Yahoo's team scoreboard; any
+mismatch is surfaced without changing player numbers to fit the team total.
+Ratios use the credited dates' underlying made/attempted totals.
 Dates come from Yahoo matchup boundaries or `/game/{gameKey}/game_weeks`; no live
 seven-day calendar is assumed. Current periods stop at today's Pacific date;
 future periods do not load player data. Daily player stats are batched in groups

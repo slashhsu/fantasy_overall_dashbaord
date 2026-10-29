@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateWeeklyPlayer, datesInPeriod, parseDailyPlayerStats, parseGameWeeks, type DailyPlayer } from "@/lib/weekly-player-stats";
+import { aggregateTeamContribution, aggregateWeeklyPlayer, datesInPeriod, parseDailyPlayerStats, parseGameWeeks, type DailyPlayer } from "@/lib/weekly-player-stats";
 const meta = { playerKey: "nba.p.1", name: "Test Player", team: "BOS", position: "PG" };
 const daily = (stats: Record<string, number | null>): DailyPlayer => ({ ...meta, stats });
 describe("actual weekly player stats", () => {
@@ -52,4 +52,13 @@ it("adds real MIN totals and DD/TD but never adds daily MPG averages", () => {
   const data = new Map([["2026-10-20", new Map([[meta.playerKey, parsed]])]]);
   const result = aggregateWeeklyPlayer(meta, ["2026-10-20"], data, ["2", "26", "27", "28"]);
   expect(result.stats).toMatchObject({ "2": 32.5, "26": null, "27": 1, "28": 0 });
+});
+
+
+it("counts a scoring date once and excludes dates outside that fantasy team's lineup", () => {
+  const a = "2026-10-20", b = "2026-10-21";
+  const data = new Map([[a, new Map([[meta.playerKey, daily({ "0": 1, "10": 11 })]])], [b, new Map([[meta.playerKey, daily({ "0": 1, "10": 2 })]])]]);
+  const result = aggregateTeamContribution(meta, [a, a], [a, a], [], data, ["10"]);
+  expect(result.stats).toMatchObject({ "0": 1, "10": 11 });
+  expect(result.scoringDates).toEqual([a]); expect(result.missingDates).toEqual([]);
 });

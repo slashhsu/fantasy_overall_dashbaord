@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MatchupPlayerDetails } from "@/components/matchup-player-details";
 const props = { leagueKey: "nba.l.1", week: 1, matchupId: "a::b", selectedTeamKey: "a", refreshVersion: 0 };
 const response = { startDate: "2026-10-20", endDate: "2026-10-25", throughDate: "2026-10-23", status: "complete", categories: [{ statId: "12", displayName: "PTS" }], teams: [
-  { teamKey: "a", name: "Team A", missingRosterDates: [], players: [{ playerKey: "p1", name: "Player One", team: "BOS", position: "PG", stats: { "0": 2, "12": 20 }, missingDates: [], incompleteStats: ["12"] }] },
+  { teamKey: "a", name: "Team A", missingRosterDates: [], players: [{ playerKey: "p1", name: "Player One", team: "BOS", position: "PG", rosterDates: ["2026-10-20", "2026-10-21"], scoringDates: ["2026-10-20"], stats: { "0": 2, "12": 20 }, missingDates: [], incompleteStats: ["12"] }] },
   { teamKey: "b", name: "Team B", missingRosterDates: [], players: [] },
 ] };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -15,6 +15,8 @@ describe("weekly player details", () => {
     fireEvent.click(screen.getByRole("button", { name: "球員當週數據" }));
     expect(await screen.findByText("Player One")).toBeInTheDocument();
     expect(screen.getByText("20", { selector: "td" })).toBeInTheDocument();
+    expect(screen.getByText(/只計入球員當天在此隊且排在有效先發位置/)).toBeInTheDocument();
+    expect(screen.getByText("計分陣容日期（1 天）")).toBeInTheDocument();
     expect(screen.queryByText(/≥/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Team B" }));
     expect(fetcher).toHaveBeenCalledTimes(1);

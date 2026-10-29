@@ -6,9 +6,10 @@ import { getLeagueSummaries } from "@/lib/dashboard-service";
 import { demoCategories, demoFreeAgents, getDemoMatchups } from "@/lib/demo-data";
 import { UpstreamError, ValidationError } from "@/lib/errors";
 import { fetchLeagueConfiguration, fetchScoreboard, parseRoster } from "@/lib/yahoo";
-import { findAll, parseXml, textValue } from "@/lib/xml";
+import { findAll, objectValue, parseXml, textValue } from "@/lib/xml";
 import { fetchYahooXml } from "@/lib/yahoo-client";
-import { aggregateWeeklyPlayer, datesInPeriod, parseDailyPlayerStats, parseGameWeeks, type DailyPlayer } from "@/lib/weekly-player-stats";
+import { aggregateTeamContribution, datesInPeriod, parseDailyPlayerStats, parseGameWeeks, type DailyPlayer } from "@/lib/weekly-player-stats";
+import { toNumber } from "@/lib/recommender";
 import type { MatchupPlayersResponse } from "@/lib/types";
 
 // Keep producers bounded as well as using the shared Yahoo request gate.
@@ -27,10 +28,15 @@ export async function getMatchupPlayers(options: { leagueKey: string; week: numb
   if (!league || !Number.isInteger(week) || week < league.startWeek || week > league.endWeek) throw new ValidationError("The league or week is unavailable.");
   const demo = isDemoMode();
   const ttl = getRuntimeConfig().cacheTtlSeconds;
-  const matchups = demo ? getDemoMatchups(leagueKey, week) : (await withCache(`scoreboard:${leagueKey}:${week}`, ttl, () => fetchScoreboard(leagueKey, week), forceRefresh)).value;
+  const scoreboardResult = demo ? null : await withCache(`scoreboard:${leagueKey}:${week}`, ttl, () => fetchScoreboard(leagueKey, week), forceRefresh);
+  const matchups = demo ? getDemoMatchups(leagueKey, week) : scoreboardResult!.value;
   const matchup = matchups.find((item) => item.id === matchupId && item.week === week);
   if (!matchup) throw new ValidationError("The matchup does not belong to this league and week.");
-  const categories = (demo ? demoCategories : (await withCache(`settings:${leagueKey}`, ttl, () => fetchLeagueConfiguration(leagueKey), forceRefresh)).value.categories).filter((item) => item.enabled);
+  const configurationResult = demo ? null : await withCache(`settings:${leagueKey}`, ttl, () => fetchLeagueConfiguration(leagueKey), forceRefresh);
+  const configuration = configurationResult?.value;
+  const categories = (configuration?.categories ?? demoCategories).filter((item) => item.enabled);
+  const reserveSlots = new Set(["BN", "IL", "IL+", "IR", "IR+", "NA"]);
+  const activeSlots = new Set((configuration?.rosterPositions ?? []).filter((slot) => slot.count > 0 && !reserveSlots.has(slot.position.toUpperCase())).map((slot) => slot.position.toUpperCase()));
   let startDate = matchup.startDate;
   let endDate = matchup.endDate;
   if (demo) {
@@ -46,8 +52,8 @@ export async function getMatchupPlayers(options: { leagueKey: string; week: numb
   datesInPeriod(startDate, endDate);
   const today = todayInTimeZone("America/Los_Angeles");
   const throughDate = startDate > today ? null : endDate < today ? endDate : today;
-  const result: MatchupPlayersResponse = { leagueKey, week, matchupId, startDate, endDate, throughDate,
-    categories, status: throughDate ? "complete" : "not-started", demoMode: demo,
+  const result: MatchupPlayersResponse = { statScope: "fantasy-team-contribution", leagueKey, week, matchupId, startDate, endDate, throughDate,
+    categories, status: throughDate ? scoreboardResult?.stale || configurationResult?.stale ? "partial" : "complete" : "not-started", demoMode: demo,
     teams: [matchup.teamA, matchup.teamB].map((team) => ({ teamKey: team.teamKey, name: team.name, players: [], missingRosterDates: [] })) };
   if (!throughDate) return result;
   const dates = datesInPeriod(startDate, throughDate);
@@ -57,7 +63,7 @@ export async function getMatchupPlayers(options: { leagueKey: string; week: numb
       playerKey: player.playerKey, name: player.name, team: player.team, position: player.position, headshotUrl: player.headshotUrl,
       stats: { "0": 1, "3": 10, "4": 5, "6": 4, "7": 3, "10": 2, "12": 15 + index, "15": 5, "16": 4, "17": 1, "18": 1, "19": 2 },
     }]))]));
-    result.teams.forEach((team, index) => { team.players = [...[...daily.values()][0].values()].slice(index * 2, index * 2 + 2).map((player) => aggregateWeeklyPlayer(player, dates, daily, categories.map((item) => item.statId))); });
+    result.teams.forEach((team, index) => { team.players = [...[...daily.values()][0].values()].slice(index * 2, index * 2 + 2).map((player) => aggregateTeamContribution(player, dates, dates, [], daily, categories.map((item) => item.statId))); });
     return result;
   }
   // Daily rosters are cached independently of matchup so opponents reuse the same data.
@@ -67,32 +73,85 @@ export async function getMatchupPlayers(options: { leagueKey: string; week: numb
         const xml = await fetchYahooXml(`/team/${team.teamKey}/roster;date=${date}/players`);
         const roster = findAll(parseXml(xml), "roster")[0];
         if (!roster || (textValue(roster.date) && textValue(roster.date) !== date)) throw new UpstreamError("Yahoo returned an unexpected roster date.");
+        for (const player of findAll(parseXml(xml), "player")) {
+          const selected = objectValue(player.selected_position);
+          if (textValue(selected.date) && textValue(selected.date) !== date) throw new UpstreamError("Yahoo returned an unexpected selected-position date.");
+        }
         return parseRoster(xml);
       }, forceRefresh);
-      return { team, date, players: roster.value, failed: false };
+      return { team, date, players: roster.value, failed: false, stale: roster.stale };
     } catch { return { team, date, players: [], failed: true }; }
   });
-  for (const { team, date, players, failed } of snapshots) {
+  const attribution = new Map(result.teams.map((team) => [team.teamKey, new Map<string, { roster: string[]; scoring: string[]; unknown: string[] }>()]));
+  const scoringKeys = new Map(dates.map((date) => [date, new Set<string>()]));
+  for (const snapshot of snapshots) {
+    const { team, date, players, failed } = snapshot;
     if (failed) { team.missingRosterDates.push(date); result.status = "partial"; }
-    for (const player of players) memberships.get(team.teamKey)!.set(player.playerKey, {
-      playerKey: player.playerKey, name: player.name, team: player.team, position: player.position, headshotUrl: player.headshotUrl,
-    });
+    if ("stale" in snapshot && snapshot.stale) result.status = "partial";
+    for (const player of players) {
+      memberships.get(team.teamKey)!.set(player.playerKey, {
+        playerKey: player.playerKey, name: player.name, team: player.team, position: player.position, headshotUrl: player.headshotUrl,
+      });
+      const record = attribution.get(team.teamKey)!.get(player.playerKey) ?? { roster: [], scoring: [], unknown: [] };
+      record.roster.push(date);
+      const slot = player.selectedPosition?.trim().toUpperCase();
+      if (slot && activeSlots.has(slot)) { record.scoring.push(date); scoringKeys.get(date)!.add(player.playerKey); }
+      else if (!slot || !reserveSlots.has(slot)) { record.unknown.push(date); result.status = "partial"; }
+      attribution.get(team.teamKey)!.set(player.playerKey, record);
+    }
   }
-  const keys = [...new Set([...memberships.values()].flatMap((members) => [...members.keys()]))].sort();
-  const batches: string[][] = [];
-  for (let index = 0; index < keys.length; index += 25) batches.push(keys.slice(index, index + 25));
+  // A trade or differently-aged cache snapshots can report two owners for one scoring date.
+  // Treat that as unresolved attribution rather than crediting both sides.
+  for (const date of dates) for (const key of [...scoringKeys.get(date)!]) {
+    const owners = result.teams.map((team) => attribution.get(team.teamKey)!.get(key)).filter((record) => record?.scoring.includes(date));
+    if (owners.length > 1) {
+      result.status = "partial"; scoringKeys.get(date)!.delete(key);
+      for (const record of owners) { record!.scoring = record!.scoring.filter((day) => day !== date); record!.unknown.push(date); }
+    }
+  }
+  const batches = dates.flatMap((date) => {
+    const keys = [...scoringKeys.get(date)!].sort();
+    const requests: { date: string; batch: string[] }[] = [];
+    for (let index = 0; index < keys.length; index += 25) requests.push({ date, batch: keys.slice(index, index + 25) });
+    return requests;
+  });
   const daily = new Map<string, Map<string, DailyPlayer>>(dates.map((date) => [date, new Map()]));
-  const responses = await boundedMap(dates.flatMap((date) => batches.map((batch) => ({ date, batch }))), async ({ date, batch }) => {
+  const responses = await boundedMap(batches, async ({ date, batch }) => {
     try {
       const stats = await withCache(`weekly-player-stats:${league.gameKey}:${date}:${batch.join(",")}`, ttl,
         async () => parseDailyPlayerStats(await fetchYahooXml(`/game/${league.gameKey}/players;player_keys=${batch.join(",")}/stats;type=date;date=${date}`), date), forceRefresh);
+      if (stats.stale) result.status = "partial";
       return { date, players: stats.value };
     } catch { result.status = "partial"; return { date, players: [] }; }
   });
   for (const response of responses) for (const player of response.players) daily.get(response.date)!.set(player.playerKey, player);
   for (const team of result.teams) {
-    team.players = [...memberships.get(team.teamKey)!.values()].map((player) => aggregateWeeklyPlayer(player, dates, daily, categories.map((item) => item.statId)));
+    team.players = [...memberships.get(team.teamKey)!.values()].map((player) => {
+      const record = attribution.get(team.teamKey)!.get(player.playerKey)!;
+      return aggregateTeamContribution(player, record.roster, record.scoring, [...record.unknown, ...team.missingRosterDates], daily, categories.map((item) => item.statId));
+    });
     if (team.players.some((player) => player.missingDates.length)) result.status = "partial";
+    const scoreboard = team.teamKey === matchup.teamA.teamKey ? matchup.teamA.stats : matchup.teamB.stats;
+    team.scoreboardCheck = compareContributionTotals(team.players, scoreboard, categories, result.status === "complete");
   }
   return result;
+}
+
+function compareContributionTotals(players: MatchupPlayersResponse["teams"][number]["players"], scoreboard: Record<string, string>, categories: MatchupPlayersResponse["categories"], complete: boolean): NonNullable<MatchupPlayersResponse["teams"][number]["scoreboardCheck"]> {
+  const differences: { statId: string; displayName: string; playerTotal: number; teamTotal: number }[] = [];
+  if (!complete || !players.length) return { status: "unavailable", differences };
+  const ratios: Record<string, [string, string]> = { "5": ["4", "3"], "8": ["7", "6"], "11": ["10", "9"], "20": ["16", "19"] };
+  let checked = 0;
+  for (const category of categories) {
+    const ids = ratios[category.statId] ?? [category.statId];
+    if (players.some((player) => ids.some((id) => player.stats[id] == null))) continue;
+    const totals = ids.map((id) => players.reduce((sum, player) => sum + player.stats[id]!, 0));
+    const playerTotal = ids.length === 2 ? totals[1] > 0 ? totals[0] / totals[1] : Number.NaN : totals[0];
+    const raw = scoreboard[category.statId];
+    const teamTotal = raw?.trim() ? toNumber(raw) : Number.NaN;
+    if (!Number.isFinite(playerTotal) || !Number.isFinite(teamTotal)) continue;
+    checked++;
+    if (Math.abs(playerTotal - teamTotal) > (ids.length === 2 ? .00051 : .000001)) differences.push({ statId: category.statId, displayName: category.displayName, playerTotal, teamTotal });
+  }
+  return { status: differences.length ? "different" : checked ? "matched" : "unavailable", differences };
 }
