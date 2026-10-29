@@ -16,6 +16,8 @@ interface BalldontlieGame {
   date?: string;
   datetime?: string;
   status?: string;
+  status_state?: string;
+  period?: number;
   postponed?: boolean;
   home_team?: BalldontlieTeam;
   visitor_team?: BalldontlieTeam;
@@ -47,6 +49,7 @@ interface EspnEvent {
 }
 
 interface EspnResponse {
+  leagues?: Array<{ id?: string; abbreviation?: string; calendarType?: string; calendarIsWhitelist?: boolean; calendarStartDate?: string; calendarEndDate?: string; calendar?: string[] }>;
   events?: EspnEvent[];
 }
 
@@ -65,8 +68,8 @@ const gameStatus = (value: string, completed = false): ScheduleGame["status"] =>
   const normalized = value.toUpperCase();
   if (normalized.includes("POSTPONED") || normalized.includes("CANCELED")) return "postponed";
   if (completed || normalized.includes("FINAL") || normalized === "POST") return "final";
-  if (normalized.includes("PROGRESS") || normalized === "IN") return "in-progress";
-  if (normalized.includes("SCHEDULE") || normalized === "PRE") return "scheduled";
+  if (normalized.includes("PROGRESS") || normalized === "IN" || /\b[1-4](?:ST|ND|RD|TH) QTR\b|HALFTIME|OVERTIME/.test(normalized)) return "in-progress";
+  if (normalized.includes("SCHEDULE") || normalized === "PRE" || /^\d{1,2}:\d{2}\s*[AP]M(?:\s*(?:ET|EST|EDT))?$/.test(normalized.trim())) return "scheduled";
   return "unknown";
 };
 
@@ -74,6 +77,8 @@ export const gamesFromBalldontlie = (data: BalldontlieResponse, targetDate: stri
   (data.data ?? []).flatMap((game, index) => {
     const date = String(game.date ?? game.datetime ?? "").slice(0, 10);
     if (game.postponed || (date && date !== targetDate)) return [];
+    const status = gameStatus(game.status_state ?? game.status ?? "unknown");
+    if (status === "postponed") return [];
     const homeTeam = normalizeTeamAbbreviation(game.home_team?.abbreviation ?? "");
     const awayTeam = normalizeTeamAbbreviation(game.visitor_team?.abbreviation ?? "");
     if (!homeTeam || !awayTeam) return [];
@@ -81,7 +86,7 @@ export const gamesFromBalldontlie = (data: BalldontlieResponse, targetDate: stri
       id: String(game.id ?? `bdl-${targetDate}-${index}`),
       date: targetDate,
       startTime: game.datetime ?? null,
-      status: gameStatus(game.status ?? "scheduled"),
+      status,
       homeTeam,
       awayTeam,
     }];
@@ -153,7 +158,10 @@ const fetchBalldontlie = async (
     "BALLDONTLIE",
     { Authorization: apiKey },
   );
-  return { teams: teamsPlayingFromBalldontlie(data, targetDate), games: gamesFromBalldontlie(data, targetDate) };
+  if (!Array.isArray(data.data)) throw new Error("BALLDONTLIE returned an invalid game list.");
+  const games = gamesFromBalldontlie(data, targetDate);
+  const confirmedEmpty = data.data.length === 0 || data.data.every((game) => game.postponed || gameStatus(game.status_state ?? game.status ?? "unknown") === "postponed");
+  return { teams: teamsPlayingFromBalldontlie(data, targetDate), games, confirmedEmpty };
 };
 
 const fetchEspn = async (targetDate: string, fetcher: ScheduleFetcher) => {
@@ -163,7 +171,19 @@ const fetchEspn = async (targetDate: string, fetcher: ScheduleFetcher) => {
     `${ESPN_SCOREBOARD_URL}?${params}`,
     "ESPN",
   );
-  return { teams: teamsPlayingFromEspn(data), games: gamesFromEspn(data, targetDate) };
+  if (!Array.isArray(data.events)) throw new Error("ESPN returned an invalid event list.");
+  const league = data.leagues?.find((item) => item.id === "46" || item.abbreviation === "NBA");
+  const calendarConfirmsOffDay = league?.calendarType === "day" && league.calendarIsWhitelist === true
+    && Array.isArray(league.calendar) && league.calendar.length > 0
+    && targetDate >= String(league.calendarStartDate ?? "").slice(0, 10)
+    && targetDate <= String(league.calendarEndDate ?? "").slice(0, 10)
+    && !league.calendar.some((day) => day.slice(0, 10) === targetDate);
+  const games = gamesFromEspn(data, targetDate);
+  const canceled = data.events.filter((event) => /POSTPONED|CANCELED/.test(event.status?.type?.name ?? "")).length;
+  return { teams: teamsPlayingFromEspn(data), games,
+    complete: data.events.length === games.length + canceled,
+    confirmedEmpty: data.events.length === 0 ? Boolean(calendarConfirmsOffDay) : canceled === data.events.length };
+
 };
 
 export const fetchNbaSchedule = async (
@@ -175,16 +195,19 @@ export const fetchNbaSchedule = async (
   const errors: string[] = [];
 
   let primaryEmpty = false;
+  let primaryBackup: { teams: string[]; games: ScheduleGame[] } | undefined;
+  const completeGames = (games: ScheduleGame[]) => games.every((game) => game.status !== "unknown" && game.startTime && Number.isFinite(Date.parse(game.startTime)));
   if (apiKey) {
     try {
       const primary = await fetchBalldontlie(targetDate, apiKey, fetcher);
-      if (primary.teams.length) {
+      if (primary.teams.length && completeGames(primary.games)) {
         return {
           teamsPlaying: primary.teams,
           schedule: { status: "available", source: "balldontlie", fallbackUsed: false, games: primary.games },
         };
       }
-      primaryEmpty = true;
+      if (primary.teams.length) primaryBackup = primary;
+      else primaryEmpty = primary.confirmedEmpty;
     } catch (error) {
       errors.push(error instanceof Error ? error.message : "BALLDONTLIE schedule request failed.");
     }
@@ -192,15 +215,15 @@ export const fetchNbaSchedule = async (
 
   try {
     const fallback = await fetchEspn(targetDate, fetcher);
-    if (!fallback.teams.length && !primaryEmpty) {
+    if ((primaryBackup && !fallback.teams.length) || (!fallback.teams.length && !primaryEmpty && !fallback.confirmedEmpty) || !fallback.complete || !completeGames(fallback.games)) {
       return {
         teamsPlaying: [],
         schedule: {
           status: "unverified",
           source: "espn",
           fallbackUsed: true,
-          games: [],
-          message: "One schedule provider returned an empty slate; player game availability is unverified.",
+          games: fallback.games,
+          message: "Schedule response lacks confirmed game status, tipoff time or a verified off-day calendar.",
         },
       };
     }
@@ -208,7 +231,7 @@ export const fetchNbaSchedule = async (
       teamsPlaying: fallback.teams,
       schedule: {
         status: "available",
-        source: fallback.teams.length ? "espn" : "balldontlie",
+        source: fallback.teams.length || fallback.confirmedEmpty ? "espn" : "balldontlie",
         fallbackUsed: true,
         games: fallback.games,
         ...(primaryEmpty && fallback.teams.length ? { message: "Primary schedule was empty; ESPN supplied the confirmed slate." } : {}),
@@ -218,6 +241,7 @@ export const fetchNbaSchedule = async (
     errors.push(error instanceof Error ? error.message : "ESPN schedule request failed.");
   }
 
+  if (primaryBackup) return { teamsPlaying: primaryBackup.teams, schedule: { status: "unverified", source: "balldontlie", fallbackUsed: true, games: primaryBackup.games, message: "Primary schedule is incomplete and the backup provider is unavailable." } };
   console.warn("NBA schedule unavailable:", errors.join(" "));
   return {
     teamsPlaying: [],

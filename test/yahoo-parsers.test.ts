@@ -186,3 +186,19 @@ describe("Yahoo XML normalization", () => {
     expect(history.map((game) => game.gameKey)).toEqual(["501", "499"]);
   });
 });
+
+it("parses Yahoo total minutes and MPG separately, including MM:SS and missing values", () => {
+  const [player] = parseFreeAgentPage(`<fantasy_content><players><player><player_key>478.p.1</player_key><player_stats><stats>
+    <stat><stat_id>0</stat_id><value>10</value></stat>
+    <stat><stat_id>1</stat_id><value>8</value></stat>
+    <stat><stat_id>2</stat_id><value>325:30</value></stat>
+    <stat><stat_id>26</stat_id><value>32:33</value></stat>
+    <stat><stat_id>27</stat_id><value>2</value></stat><stat><stat_id>28</stat_id><value>1</value></stat>
+    <stat><stat_id>12</stat_id><value></value></stat><stat><stat_id>16</stat_id><value>-</value></stat>
+  </stats></player_stats></player></players></fantasy_content>`, "lastmonth");
+  expect(player.stats).toMatchObject({ "Games Started": 8, "Minutes Played": 325.5, "Minutes Per Game": 32.55, "Double-Doubles": 2, "Triple-Doubles": 1 });
+  expect(player.stats).not.toHaveProperty("Points Scored"); expect(player.stats).not.toHaveProperty("Assists");
+  expect(player.stats).not.toHaveProperty("Rank");
+  const [draft] = parseDraftPlayerPage('<fantasy_content><players><player><player_key>478.p.1</player_key><player_stats><stats><stat><stat_id>1</stat_id><value>8</value></stat></stats></player_stats></player></players></fantasy_content>');
+  expect(draft.yahooRank).toBeNull();
+});

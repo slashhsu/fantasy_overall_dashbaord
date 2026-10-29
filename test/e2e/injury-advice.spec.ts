@@ -71,3 +71,19 @@ test("watchlist starts collapsed and switching fantasy teams clears its cards", 
   await expect(section.getByText("Watch Backup", { exact: true })).toHaveCount(0);
   await expect(section.getByText("觀察名單（0）")).toBeVisible();
 });
+
+test("empty injury advice distinguishes sample shortage from missing minutes", async ({ page }) => {
+  await page.route("**/api/injury-advice?*", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    await route.fulfill({ json: { leagueKey: params.get("leagueKey"), teamKey: params.get("teamKey"), generatedAt: new Date().toISOString(), observationDate: new Date().toISOString().slice(0, 10), status: "partial", players: [], rosterKeys: [], opportunities: [], watchlist: [], warnings: ["部分來源不完整或使用備援資料；候選僅供觀察，不更新復出紀錄。"], exclusionCounts: { "傷員上場時間資料缺失": 2, "傷員基準場數不足（至少 5 場）": 3, "傷員基準時間未達 28 分鐘": 1 } } });
+  });
+  await page.goto("/login");
+  await page.getByLabel("Dashboard password").fill("local-preview-password");
+  await page.getByRole("button", { name: "Open dashboard" }).click();
+  const section = page.getByRole("region", { name: "傷病機會與復出提醒" });
+  await section.scrollIntoViewIfNeeded();
+  await expect(section.getByText(/傷員上場時間資料缺失（2）/)).toBeVisible();
+  await expect(section.getByText(/傷員基準場數不足（至少 5 場）（3）/)).toBeVisible();
+  await expect(section.getByText(/資料不足不代表球員沒有補強價值/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+});

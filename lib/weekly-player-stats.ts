@@ -1,3 +1,4 @@
+import { parseYahooStatNumber } from "@/lib/stats";
 import { isStrictIsoDate } from "@/lib/date-time";
 import { UpstreamError } from "@/lib/errors";
 import { findAll, objectValue, parseXml, textValue } from "@/lib/xml";
@@ -23,8 +24,8 @@ export function parseDailyPlayerStats(xml: string, date: string): DailyPlayer[] 
     if (textValue(data.coverage_type) !== "date" || textValue(data.date) !== date) return [];
     const stats: Record<string, number | null> = {};
     for (const stat of findAll(data, "stat")) {
-      const raw = textValue(stat.value).replaceAll(",", "").trim();
-      stats[textValue(stat.stat_id)] = raw !== "" && /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : null;
+      const id = textValue(stat.stat_id);
+      stats[id] = parseYahooStatNumber(id, textValue(stat.value));
     }
     return [{ playerKey: textValue(node.player_key), name: textValue(objectValue(node.name).full),
       team: textValue(node.editorial_team_abbr), position: textValue(node.display_position),
@@ -32,7 +33,7 @@ export function parseDailyPlayerStats(xml: string, date: string): DailyPlayer[] 
   }).filter((player) => player.playerKey);
 }
 const ratios: Record<string, [string, string]> = { "5": ["4", "3"], "8": ["7", "6"], "11": ["10", "9"], "20": ["16", "19"] };
-const additive = new Set(["0", "3", "4", "6", "7", "9", "10", "12", "13", "14", "15", "16", "17", "18", "19", "21", "22", "23", "24", "25", "26", "27", "28", "29"]);
+const additive = new Set(["0", "1", "2", "3", "4", "6", "7", "9", "10", "12", "13", "14", "15", "16", "17", "18", "19", "21", "22", "23", "24", "25", "27", "28"]);
 export function aggregateWeeklyPlayer(metadata: Omit<DailyPlayer, "stats">, dates: string[], daily: Map<string, Map<string, DailyPlayer>>, statIds: string[]): WeeklyPlayer {
   const required = [...new Set(["0", ...statIds.flatMap((id) => ratios[id] ?? [id])])];
   const missingDates = dates.filter((date) => {

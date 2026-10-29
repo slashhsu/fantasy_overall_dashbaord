@@ -353,6 +353,7 @@ export interface StandingsContext {
 }
 
 export interface RecommendationPeriod {
+  missingScheduleDates?: string[];
   startDate: string | null;
   endDate: string | null;
   timeZone: string;

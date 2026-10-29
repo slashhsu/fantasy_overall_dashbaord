@@ -1,6 +1,7 @@
 const STAT_ID_NAMES: Record<string, string> = {
   "0": "Games Played (GP)",
-  "1": "Rank",
+  "1": "Games Started",
+  "2": "Minutes Played",
   "3": "Field Goals Attempted (FGA)",
   "4": "Field Goals Made (FGM)",
   "5": "Field Goal Percentage",
@@ -24,13 +25,15 @@ const STAT_ID_NAMES: Record<string, string> = {
   "23": "Technical Fouls",
   "24": "Ejections",
   "25": "Flagrant Fouls",
-  "26": "Minutes Played",
-  "27": "Games Started",
-  "28": "Double-Doubles",
-  "29": "Triple-Doubles",
+  "26": "Minutes Per Game",
+  "27": "Double-Doubles",
+  "28": "Triple-Doubles",
 };
 
 const NAME_ALIASES: Record<string, string> = {
+  MIN: "Minutes Played",
+  MPG: "Minutes Per Game",
+  GS: "Games Started",
   FG: "Field Goal Percentage",
   FGP: "Field Goal Percentage",
   FIELDGOALPERCENTAGE: "Field Goal Percentage",
@@ -117,4 +120,14 @@ const TEAM_ALIASES: Record<string, string> = {
 export const normalizeTeamAbbreviation = (team: string) => {
   const normalized = team.trim().toUpperCase();
   return TEAM_ALIASES[normalized] ?? normalized;
+};
+
+// Yahoo MIN/MPG can be decimal minutes or MM:SS. Missing values stay missing.
+export const parseYahooStatNumber = (statId: string, value: string): number | null => {
+  const raw = value.replaceAll(",", "").trim();
+  const duration = (statId === "2" || statId === "26") ? /^(\d+):([0-5]\d)$/.exec(raw) : null;
+  if (duration) { const minutes = Number(duration[1]) + Number(duration[2]) / 60; return Number.isFinite(minutes) ? minutes : null; }
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw)) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
 };

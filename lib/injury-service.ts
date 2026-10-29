@@ -34,12 +34,15 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
     Object.assign(result, findInjuryOpportunities(result.players, new Set(["demo.p.900002"]), new Map([["demo.p.900002", { score: dashboard.recommendations[0]?.score ?? 0, scoreType: dashboard.recommendations[0]?.scoreType, helps: ["AST", "STL"] }]])));
     return result;
   }
-  if (dashboard.updateStatus?.stale || dashboard.dataQuality?.stale || (dashboard.dataQuality && dashboard.dataQuality.status !== "complete")) result.status = "partial";
+  if (dashboard.updateStatus?.stale || dashboard.dataQuality?.stale || (dashboard.dataQuality && dashboard.dataQuality.status !== "complete")) {
+    result.status = "partial";
+    result.warnings.push(...(dashboard.dataQuality?.warnings ?? []));
+  }
   const ttl = getRuntimeConfig().cacheTtlSeconds;
   const pool = await withCache(`free-agents:${leagueKey}`, ttl, () => fetchFreeAgentPool(leagueKey), forceRefresh);
   if (pool.stale || pool.value.dataQuality.stale || pool.value.dataQuality.status !== "complete") result.status = "partial";
-  const selectedRoster = await withCache(`roster:${teamKey}:${date}`, ttl, () => fetchRoster(leagueKey, teamKey, date), forceRefresh).catch(() => null);
-  if (!selectedRoster || selectedRoster.stale || !selectedRoster.value.available || selectedRoster.value.players.some((player) => !player.statWindows)) {
+  const selectedRoster = await withCache(`roster:${teamKey}:${date}`, ttl, () => fetchRoster(leagueKey, teamKey, date, forceRefresh), forceRefresh).catch(() => null);
+  if (!selectedRoster || selectedRoster.stale || selectedRoster.value.stale || !selectedRoster.value.available || selectedRoster.value.players.some((player) => !player.statWindows)) {
     result.status = "partial"; result.warnings.push("所選球隊陣容或數據不完整，暫不產生復出釋出提醒。");
   }
   result.rosterKeys = selectedRoster?.value.players.map((player) => player.playerKey) ?? [];

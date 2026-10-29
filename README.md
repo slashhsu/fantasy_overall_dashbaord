@@ -387,3 +387,35 @@ stop weekly scoring and show a reason with the daily-mode selector still usable;
 partial game counts are labelled as confirmed lower bounds, never complete zeros.
 The authenticated guide shares the weekly model annotation. No new public API or
 external data service is introduced.
+
+### Yahoo minute fields and injury eligibility
+
+Yahoo NBA stat IDs 2 (MIN, total minutes) and 26 (MPG, minutes per game) must
+remain distinct. Both accept decimal minutes and `MM:SS`; only total MIN is
+divided by GP. Injury evaluation prefers valid totals, otherwise uses valid MPG
+directly. Empty values and dashes stay missing. GS is stat 1, DD is 27 and TD is
+28; GS must never be used as a Yahoo rank proxy. Weekly detail sums totals and
+counting stats, and does not add MPG averages.
+
+The injury empty state distinguishes missing minute data, fewer than five
+baseline games, and a genuine baseline below 28 MPG. Early-season players can
+legitimately lack five games; missing evidence must not be presented as proof
+that their role is unimportant. Existing 28/24/5-minute and sample thresholds
+remain unchanged. Partial sources still prevent featured recommendations and
+new return observations; qualified candidates may appear in the watchlist.
+
+BALLDONTLIE schedule lifecycle parsing accepts its documented `7:00 pm ET`
+pre-game strings and quarter/halftime states, preferring explicit `status_state`
+when present. Incomplete primary timestamps or states trigger ESPN fallback.
+An ESPN empty slate is accepted as an off-day only when its NBA day whitelist
+and season date bounds confirm it (or the independent primary also confirms an
+empty slate). Malformed, contradictory or incomplete responses remain unknown.
+Weekly errors report the missing schedule dates so an unknown date can be
+investigated rather than being silently treated as a zero-game day.
+
+Weekly lineup completeness only requires projections for healthy, non-IL players
+with an upcoming game that day. Missing stats for injured/reserve-list players,
+players off that day or already-locked starters do not invalidate all weekly
+recommendations. Locked starters' roster metadata is retained to reserve their
+slots; IL players are not silently activated by the weekly optimizer. Missing
+active-player projections and actual roster fetch failures still stop scoring.

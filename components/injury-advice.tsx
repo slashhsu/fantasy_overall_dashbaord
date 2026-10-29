@@ -90,7 +90,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
       {data.opportunities.length || data.watchlist.length ? <p className="injury-message">推薦分數<HelpTip topic={scoreHelp.topic} label="傷病推薦分數" /></p> : null}
       <h3 className="injury-section-title">精選補人<HelpTip topic="injuryMinutes" /></h3>
       <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
-      {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補，不代表需要補人。{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}
+      {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補。資料不足不代表球員沒有補強價值；篩選原因：{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}
       <details className="injury-watchlist">
         <summary>觀察名單（{data.watchlist.length}）</summary>
         <p className="injury-message">傷病待確認、正向增幅樣本不足或來源受限，暫不列為精選；觀察名單不建立新的復出追蹤。</p>

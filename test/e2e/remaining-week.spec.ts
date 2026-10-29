@@ -40,3 +40,20 @@ test("weekly defaults, sortable counts, daily switch and last-selection wins", a
   await expect(table.getByRole("button", { name: "預估可排入場次", exact: true })).toHaveCount(0);
   expect(requests).toContain("remaining-week"); expect(requests).toContain("daily");
 });
+
+test("unknown weekly dates show their cause and allow switching to daily recommendations", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.route("**/api/dashboard?*", async (route) => {
+    const url = new URL(route.request().url()); const weekly = url.searchParams.get("recommendationHorizon") === "remaining-week";
+    url.searchParams.set("recommendationHorizon", "daily");
+    const response = await route.fetch({ url: url.href }); const data = await response.json();
+    if (weekly) { data.recommendationHorizon = "remaining-week"; data.recommendations = []; data.recommendationPeriod = { startDate: data.targetDate, endDate: data.targetDate, timeZone: data.timeZone, status: "partial", missingScheduleDates: [data.targetDate], message: `部分賽程未知（${data.targetDate}）；整週評分暫停。可切回當日推薦。` }; }
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto("/login"); await page.getByLabel("Dashboard password").fill("local-preview-password");
+  await page.getByRole("button", { name: "Open dashboard" }).click();
+  await expect(page.getByText("沒有可用的整週推薦", { exact: true })).toBeVisible();
+  await expect(page.getByText(/部分賽程未知（/, { exact: false }).first()).toBeVisible();
+  await page.getByLabel("推薦期間", { exact: true }).selectOption("daily");
+  await expect(page.locator(".recommendation-table tbody tr").first()).toBeVisible();
+});

@@ -44,3 +44,12 @@ describe("actual weekly player stats", () => {
     expect(parseDailyPlayerStats(xml.replace("<coverage_type>date", "<coverage_type>season"), "2026-10-20")).toEqual([]);
   });
 });
+
+it("adds real MIN totals and DD/TD but never adds daily MPG averages", () => {
+  const xml = '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><coverage_type>date</coverage_type><date>2026-10-20</date><stats><stat><stat_id>0</stat_id><value>1</value></stat><stat><stat_id>2</stat_id><value>32:30</value></stat><stat><stat_id>26</stat_id><value>32:30</value></stat><stat><stat_id>27</stat_id><value>1</value></stat><stat><stat_id>28</stat_id><value>0</value></stat></stats></player_stats></player></players></fantasy_content>';
+  const parsed = parseDailyPlayerStats(xml, "2026-10-20")[0];
+  expect(parsed.stats["2"]).toBe(32.5);
+  const data = new Map([["2026-10-20", new Map([[meta.playerKey, parsed]])]]);
+  const result = aggregateWeeklyPlayer(meta, ["2026-10-20"], data, ["2", "26", "27", "28"]);
+  expect(result.stats).toMatchObject({ "2": 32.5, "26": null, "27": 1, "28": 0 });
+});

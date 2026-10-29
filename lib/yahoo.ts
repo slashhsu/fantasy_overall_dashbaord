@@ -2,7 +2,7 @@ import "server-only";
 
 import { withCache } from "@/lib/cache";
 import { getRuntimeConfig } from "@/lib/config";
-import { compactCategoryName, canonicalCategoryName, normalizeTeamAbbreviation, statNameForId } from "@/lib/stats";
+import { compactCategoryName, canonicalCategoryName, normalizeTeamAbbreviation, parseYahooStatNumber, statNameForId } from "@/lib/stats";
 import type {
   FreeAgent,
   DraftAnalysis,
@@ -271,8 +271,8 @@ const parsePlayer = (player: XmlNode, period: FreeAgent["period"]): FreeAgent =>
   const playerStats = objectValue(player.player_stats);
   for (const stat of findAll(playerStats, "stat")) {
     const statId = textValue(stat.stat_id);
-    const value = Number(textValue(stat.value).replaceAll(",", ""));
-    if (statId && Number.isFinite(value)) stats[statNameForId(statId)] = value;
+    const value = parseYahooStatNumber(statId, textValue(stat.value));
+    if (statId && value !== null) stats[statNameForId(statId)] = value;
   }
   const nameNode = objectValue(player.name);
   const headshot = objectValue(player.headshot);
@@ -506,7 +506,7 @@ export const parseDraftPlayerPage = (xml: string): DraftPlayer[] => {
     .map((node): DraftPlayer => {
       const parsed = parsePlayer(node, "season");
       const gamesPlayed = parsed.stats[statNameForId("0")] ?? 0;
-      const yahooRank = parsed.stats[statNameForId("1")];
+      const yahooRank = Number(textValue(findAll(node, "player_rank").find((rank) => textValue(rank.coverage_type) === "season")?.rank) || textValue(node.rank) || Number.NaN);
       return {
         playerKey: parsed.playerKey,
         playerId: textValue(node.player_id) || playerIdFromKey(parsed.playerKey),
@@ -566,7 +566,7 @@ const fetchDraftPages = async (pathFor: (start: number) => string) => {
   return players.slice(0, freeAgentLimit);
 };
 
-const isRateStat = (name: string) => name.includes("Percentage") || name.includes("Ratio") || name === "Rank";
+const isRateStat = (name: string) => name.includes("Percentage") || name.includes("Ratio") || name === "Rank" || name === "Minutes Per Game";
 
 const perGameStats = (stats: Record<string, number>, gamesPlayed: number) => {
   if (!(gamesPlayed > 0)) return {};

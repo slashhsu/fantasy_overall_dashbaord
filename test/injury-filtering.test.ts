@@ -83,3 +83,13 @@ describe("strict injury replacement selection", () => {
     }
   });
 });
+
+it("distinguishes missing minutes, insufficient games and genuinely low baseline minutes", () => {
+  const variants = [
+    { ...star, monthMinutes: null, seasonMinutes: null },
+    { ...star, monthGames: 4, seasonGames: 4 },
+    { ...star, monthMinutes: 27 },
+  ];
+  const expected = ["傷員上場時間資料缺失", "傷員基準場數不足（至少 5 場）", "傷員基準時間未達 28 分鐘"];
+  variants.forEach((player, index) => expect(findInjuryOpportunities([player], new Set(), new Map()).exclusionCounts[expected[index]]).toBe(1));
+});

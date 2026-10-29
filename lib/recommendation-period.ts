@@ -1,4 +1,5 @@
 import "server-only";
+import { normalizeTeamAbbreviation } from "@/lib/stats";
 import { withCache } from "@/lib/cache";
 import { fetchNbaSchedule } from "@/lib/nba-schedule";
 import { fetchRoster } from "@/lib/yahoo";
@@ -9,6 +10,11 @@ import type { LeagueSummary, Matchup, RecommendationPeriod, RosterPlayer, Schedu
 
 export const upcomingGame = (game: ScheduleGame, now = new Date()) =>
   game.status === "scheduled" && Boolean(game.startTime) && Date.parse(game.startTime!) > now.getTime();
+
+const reserveList = (player: RosterPlayer) => ["IL", "IL+", "NA"].includes((player.selectedPosition ?? "").toUpperCase());
+const needsProjection = (player: RosterPlayer, games: ScheduleGame[], now: Date) => !reserveList(player)
+  && !["O", "OUT", "INJ", "IL", "IL+", "NA", "SUSP"].includes((player.status ?? "").toUpperCase())
+  && games.some((game) => upcomingGame(game, now) && [game.homeTeam, game.awayTeam].includes(normalizeTeamAbbreviation(player.team)));
 
 export async function loadRecommendationPeriod(options: {
   league: LeagueSummary; matchup: Matchup; date: string; timeZone: string; teamKey: string;
@@ -41,6 +47,8 @@ export async function loadRecommendationPeriod(options: {
     const queryDates = [shift(start, -1), ...dates, shift(end, 1)];
     const gamesById = new Map<string, ScheduleGame>();
     let next = 0; let scheduleComplete = true; let lineupComplete = true;
+    const missingScheduleDates = new Set<string>();
+    const missing = (day: string) => { scheduleComplete = false; missingScheduleDates.add(day); };
     const bounded = async (items: string[], load: (date: string) => Promise<void>) => {
       next = 0;
       await Promise.all(Array.from({ length: Math.min(2, items.length) }, async () => {
@@ -50,14 +58,16 @@ export async function loadRecommendationPeriod(options: {
     await bounded(queryDates, async (day) => {
       try {
         const result = await withCache(`nba-schedule:${day}:${timeZone}`, ttl, () => fetchNbaSchedule(day), force);
-        if (result.stale || result.value.schedule.status !== "available") { scheduleComplete = false; return; }
+        if (result.stale || result.value.schedule.status !== "available") { missing(day); return; }
         for (const game of result.value.schedule.games) {
-          if (game.status === "unknown" || (!game.startTime && game.status === "scheduled")) scheduleComplete = false;
-          if (!game.startTime || !Number.isFinite(Date.parse(game.startTime)) || game.status === "postponed") continue;
+          if (!game.startTime || !Number.isFinite(Date.parse(game.startTime))) { if (game.status !== "postponed") missing(day); continue; }
+          if (game.status === "postponed") continue;
           const localDate = todayInTimeZone(timeZone, new Date(game.startTime!));
+          if (localDate < start || localDate > end) continue;
+          if (game.status === "unknown") missing(day);
           if (localDate >= start && localDate <= end) gamesById.set(`${game.homeTeam}:${game.awayTeam}:${game.startTime}`, { ...game, date: localDate });
         }
-      } catch { scheduleComplete = false; }
+      } catch { missing(day); }
     });
     for (const game of [...gamesById.values()].filter((g) => upcomingGame(g, now))) for (const team of [game.homeTeam, game.awayTeam]) counts.set(team, (counts.get(team) ?? 0) + 1);
     await bounded(dates, async (day) => {
@@ -66,14 +76,19 @@ export async function loadRecommendationPeriod(options: {
       if (weekly && games.length) {
         try {
           const snapshot = await withCache(`roster:${options.teamKey}:${day}`, ttl, () => fetchRoster(league.leagueKey, options.teamKey, day, force), force);
-          if (!snapshot.value.available || snapshot.stale || snapshot.value.stale || snapshot.value.players.some((p) => p.period === "unavailable")) lineupComplete = false;
-          roster = snapshot.value.players;
+          const relevant = snapshot.value.players.filter((player) => needsProjection(player, games, now));
+          if (snapshot.stale || snapshot.value.stale || relevant.some((p) => p.period === "unavailable")
+            || (!snapshot.value.available && (!snapshot.value.players.length || relevant.length > 0))) lineupComplete = false;
+          // Inactive/IL players and off-day players don't need projections for this day's comparison.
+          // Keep locked starters' metadata so their already-used slots remain reserved.
+          roster = snapshot.value.players.filter((player) => !reserveList(player));
         } catch { lineupComplete = false; }
       }
       days.push({ date: day, games, roster });
     });
+    period.missingScheduleDates = [...missingScheduleDates].sort();
     period.status = scheduleComplete && (!weekly || lineupComplete) ? "complete" : "partial";
-    period.message = !scheduleComplete ? "部分賽程未知；僅顯示已確認至少場次，整週評分暫停。" : !lineupComplete ? "每日陣容不足或使用備援；無法可靠評估可排入場次。" : undefined;
+    period.message = !scheduleComplete ? `部分賽程未知（${period.missingScheduleDates.join("、")}）；僅顯示已確認至少場次，整週評分暫停。可切回當日推薦。` : !lineupComplete ? "每日陣容不足或使用備援；無法可靠評估可排入場次。" : undefined;
     return { period, days: days.sort((a, b) => a.date.localeCompare(b.date)), counts, lineupComplete, scheduleComplete };
   } catch {
     period.message = "無法取得此週的完整日期或賽程，請稍後重試或切回當日推薦。";

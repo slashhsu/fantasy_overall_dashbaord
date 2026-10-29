@@ -12,7 +12,10 @@ const windowMinutes = (player: FreeAgent, period: "lastweek" | "lastmonth" | "se
   const stats = player.statWindows?.[period];
   const games = stats?.["Games Played (GP)"];
   const minutes = stats?.["Minutes Played"];
-  return games && games > 0 && minutes !== undefined && Number.isFinite(minutes) && minutes >= 0 && minutes / games <= 60 ? minutes / games : null;
+  if (!games || games <= 0 || !Number.isInteger(games)) return null;
+  if (minutes !== undefined && Number.isFinite(minutes) && minutes >= 0 && minutes / games <= 60) return minutes / games;
+  const perGame = stats?.["Minutes Per Game"];
+  return perGame !== undefined && Number.isFinite(perGame) && perGame >= 0 && perGame <= 60 ? perGame : null;
 };
 export function injuryPlayer(player: FreeAgent): InjuryPlayer {
   return { playerKey: player.playerKey, name: player.name, team: player.team, position: player.position,
@@ -55,7 +58,13 @@ export function findInjuryOpportunities(
   for (const star of players) {
     if (!star.statusKnown || !["out", "watch"].includes(injuryState(star.status)) || !star.team || star.team === "FA") continue;
     const baseline = importantBaseline(star);
-    if (!baseline) { exclude("傷員重要性不足或基準資料不足"); continue; }
+    if (!baseline) {
+      const periods = [[star.monthGames, star.monthMinutes], [star.seasonGames, star.seasonMinutes]] as const;
+      const sufficient = periods.find(([games, minutes]) => validGames(games) && games >= INJURY_RULES.baselineGames && validMinutes(minutes));
+      exclude(sufficient ? "傷員基準時間未達 28 分鐘" : periods.some(([games]) => validGames(games) && games >= INJURY_RULES.baselineGames)
+        ? "傷員上場時間資料缺失" : "傷員基準場數不足（至少 5 場）");
+      continue;
+    }
     const candidates = players.filter((player) => player.playerKey !== star.playerKey && available.has(player.playerKey) && player.statusKnown && injuryState(player.status) === "clear" && player.team === star.team && positionsOverlap(player.position, star.position));
     if (!candidates.length) exclude("沒有可取得的同隊相近位置球員");
     for (const player of candidates) {

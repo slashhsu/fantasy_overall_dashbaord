@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.mocked(fetchRoster).mockResolvedValue({ available: true, players: [player("nba.p.4")] });
   vi.mocked(fetchYahooXml).mockImplementation(async (path) => {
     if (path.includes("status=T")) return takenXml;
-    return '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>5</value></stat><stat><stat_id>26</stat_id><value>160</value></stat></stats></player_stats></player></players></fantasy_content>';
+    return '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>5</value></stat><stat><stat_id>2</stat_id><value>160</value></stat></stats></player_stats></player></players></fantasy_content>';
   });
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
@@ -73,4 +73,17 @@ it("coalesces injury source requests for twenty simultaneous visitors", async ()
   expect(paths.filter((path) => path.includes("status=T"))).toHaveLength(1);
   for (const period of ["lastweek", "lastmonth", "season"]) expect(paths.filter((path) => path.includes(`type=${period}`))).toHaveLength(1);
   expect(fetchFreeAgentPool).toHaveBeenCalledTimes(1); expect(fetchRoster).toHaveBeenCalledTimes(1);
+});
+
+it("produces an injury recommendation from real-shaped Yahoo MPG duration stats rather than dividing MPG by GP", async () => {
+  const { parseFreeAgentPage, mergePlayerWindows } = await import("@/lib/yahoo");
+  const rows = (["lastweek", "lastmonth", "season"] as const).map((period) => parseFreeAgentPage(`<fantasy_content><players><player><player_key>nba.p.2</player_key><name><full>Backup</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position><player_stats><stats>
+    <stat><stat_id>0</stat_id><value>${period === "lastweek" ? 3 : 10}</value></stat>
+    <stat><stat_id>26</stat_id><value>${period === "lastweek" ? "29:30" : "19:00"}</value></stat>
+  </stats></player_stats></player></players></fantasy_content>`, period)[0]);
+  vi.mocked(fetchFreeAgentPool).mockResolvedValue({ players: [mergePlayerWindows(rows)!], dataQuality: { status: "complete", projectionSource: "current-season", failedWindows: [], warnings: [], stale: false } });
+  vi.mocked(fetchYahooXml).mockImplementation(async (path) => path.includes("status=T") ? takenXml : '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>5</value></stat><stat><stat_id>26</stat_id><value>32:00</value></stat></stats></player_stats></player></players></fantasy_content>');
+  const result = await getInjuryAdvice(options);
+  expect(result.opportunities[0]).toMatchObject({ beneficiaryKey: "nba.p.2", minutesDelta: 10.5 });
+  expect(result.players.find((player) => player.playerKey === "nba.p.1")?.monthMinutes).toBe(32);
 });

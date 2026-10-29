@@ -53,3 +53,12 @@ describe("injury rotation evidence", () => {
     expect(sanitizeInjuryHistory(many, now).observations).toHaveLength(50);
   });
 });
+
+it("uses MPG directly and prefers verified minute totals when both are present", () => {
+  const player = { playerKey: "p", name: "P", team: "BOS", position: "PG", period: "season" as const, stats: {} };
+  const fromMpg = injuryPlayer({ ...player, statWindows: { lastmonth: { "Games Played (GP)": 10, "Minutes Per Game": 32.5 } } });
+  expect(fromMpg.monthMinutes).toBe(32.5);
+  const totals = injuryPlayer({ ...player, statWindows: { lastmonth: { "Games Played (GP)": 10, "Minutes Played": 320, "Minutes Per Game": 32.5 } } });
+  expect(totals.monthMinutes).toBe(32);
+  expect(injuryPlayer({ ...player, statWindows: { lastmonth: { "Games Played (GP)": 0, "Minutes Per Game": 32.5 } } }).monthMinutes).toBeNull();
+});
