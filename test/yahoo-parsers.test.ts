@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergePlayerWindows, parseDraftPlayerPage, parseDraftResults, parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseNbaGameHistory, parseRoster, parseScoreboard } from "@/lib/yahoo";
+import { draftModeFor, mergePlayerWindows, parseDraftPlayerPage, parseDraftResults, parseFreeAgentPage, parseLeagueConfiguration, parseLeagueDiscovery, parseLeagueSettings, parseLeagueTeamStats, parseNbaGameHistory, parseRoster, parseScoreboard } from "@/lib/yahoo";
 
 const gamesXml = `
 <fantasy_content xmlns="http://fantasysports.yahooapis.com/fantasy/v2/base.rng">
@@ -119,6 +119,40 @@ describe("Yahoo XML normalization", () => {
     });
   });
 
+  it("parses standings, points modifiers, and every supported Yahoo draft mode", () => {
+    const standings = parseLeagueTeamStats(`
+      <fantasy_content><league><standings><teams><team>
+        <team_key>500.l.1.t.1</team_key><name>North Star</name>
+        <team_standings><rank>2</rank></team_standings>
+        <team_stats><stats>
+          <stat><stat_id>12</stat_id><value>8120</value></stat>
+          <stat><stat_id>19</stat_id><value>941</value></stat>
+        </stats></team_stats>
+      </team></teams></standings></league></fantasy_content>`);
+    expect(standings).toEqual([{
+      teamKey: "500.l.1.t.1",
+      name: "North Star",
+      rank: 2,
+      stats: { "12": "8120", "19": "941" },
+    }]);
+
+    const configuration = parseLeagueConfiguration(`
+      <fantasy_content><league><scoring_type>point</scoring_type><settings>
+        <draft_type>auction</draft_type>
+        <stat_categories><stats><stat><stat_id>12</stat_id><display_name>PTS</display_name></stat></stats></stat_categories>
+        <stat_modifiers><stats><stat><stat_id>12</stat_id><value>1.25</value></stat></stats></stat_modifiers>
+      </settings></league></fantasy_content>`);
+    expect(configuration).toMatchObject({ scoringFormat: "points", draftMode: "salary-cap" });
+    expect(configuration.categories[0].scoringModifier).toBe(1.25);
+    expect([
+      draftModeFor("live standard"),
+      draftModeFor("linear"),
+      draftModeFor("salary cap"),
+      draftModeFor("offline"),
+      draftModeFor("mystery"),
+    ]).toEqual(["snake", "linear", "salary-cap", "offline", "unknown"]);
+  });
+
   it("parses Yahoo draft analysis, draft results, and NBA game history", () => {
     const players = parseDraftPlayerPage(`
       <fantasy_content><game><players><player>
@@ -151,4 +185,20 @@ describe("Yahoo XML normalization", () => {
       </games></fantasy_content>`);
     expect(history.map((game) => game.gameKey)).toEqual(["501", "499"]);
   });
+});
+
+it("parses Yahoo total minutes and MPG separately, including MM:SS and missing values", () => {
+  const [player] = parseFreeAgentPage(`<fantasy_content><players><player><player_key>478.p.1</player_key><player_stats><stats>
+    <stat><stat_id>0</stat_id><value>10</value></stat>
+    <stat><stat_id>1</stat_id><value>8</value></stat>
+    <stat><stat_id>2</stat_id><value>325:30</value></stat>
+    <stat><stat_id>26</stat_id><value>32:33</value></stat>
+    <stat><stat_id>27</stat_id><value>2</value></stat><stat><stat_id>28</stat_id><value>1</value></stat>
+    <stat><stat_id>12</stat_id><value></value></stat><stat><stat_id>16</stat_id><value>-</value></stat>
+  </stats></player_stats></player></players></fantasy_content>`, "lastmonth");
+  expect(player.stats).toMatchObject({ "Games Started": 8, "Minutes Played": 325.5, "Minutes Per Game": 32.55, "Double-Doubles": 2, "Triple-Doubles": 1 });
+  expect(player.stats).not.toHaveProperty("Points Scored"); expect(player.stats).not.toHaveProperty("Assists");
+  expect(player.stats).not.toHaveProperty("Rank");
+  const [draft] = parseDraftPlayerPage('<fantasy_content><players><player><player_key>478.p.1</player_key><player_stats><stats><stat><stat_id>1</stat_id><value>8</value></stat></stats></player_stats></player></players></fantasy_content>');
+  expect(draft.yahooRank).toBeNull();
 });

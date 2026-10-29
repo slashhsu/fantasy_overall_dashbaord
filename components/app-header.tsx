@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, ListOrdered, LogOut, Trophy } from "lucide-react";
+import { BookOpen, LayoutDashboard, ListOrdered, LogOut, Trophy } from "lucide-react";
 
 export function AppHeader({ demoMode = false }: { demoMode?: boolean }) {
   const pathname = usePathname();
@@ -19,17 +19,18 @@ export function AppHeader({ demoMode = false }: { demoMode?: boolean }) {
         <div className="brand-lockup">
           <span className="brand-icon"><Trophy size={17} aria-hidden="true" /></span>
           <div>
-            <p className="brand-title">Fantasy Basketball Desk</p>
+            <p className="brand-title"><span className="brand-title-full">Fantasy Basketball Desk</span><span className="brand-title-compact">Fantasy Desk</span></p>
             <p className="brand-subtitle">Yahoo roster intelligence</p>
           </div>
         </div>
         <nav className="header-nav" aria-label="Workspace">
-          <Link href="/" className={pathname === "/" ? "active" : ""}>
+          <Link href="/" className={pathname === "/" ? "active" : ""} aria-label="Dashboard" aria-current={pathname === "/" ? "page" : undefined} title="Dashboard">
             <LayoutDashboard size={14} /><span>Dashboard</span>
           </Link>
-          <Link href="/draft" className={pathname.startsWith("/draft") ? "active" : ""}>
+          <Link href="/draft" className={pathname.startsWith("/draft") ? "active" : ""} aria-label="Draft Assistant" aria-current={pathname.startsWith("/draft") ? "page" : undefined} title="Draft Assistant">
             <ListOrdered size={14} /><span>Draft Assistant</span>
           </Link>
+          <Link href="/guide" className={pathname === "/guide" ? "active" : ""} aria-label="使用說明書" aria-current={pathname === "/guide" ? "page" : undefined}><BookOpen size={14} /><span>說明書</span></Link>
         </nav>
         <div className="header-actions">
           {demoMode ? <span className="demo-badge">Demo data</span> : null}

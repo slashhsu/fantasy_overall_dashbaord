@@ -1,4 +1,12 @@
 "use client";
+import { HelpTip } from "@/components/help-tip";
+import { scoreHelpFor, scoreTopic } from "@/lib/help-content";
+
+import { InjuryAdvice } from "@/components/injury-advice";
+import { MatchupPlayerDetails } from "@/components/matchup-player-details";
+import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
+import { PlayerAvatar } from "@/components/player-avatar";
+import { ArenaIntro } from "@/components/arena-intro";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -27,7 +35,7 @@ import type {
 import { buildHeatmapRanges, heatmapCellStyle } from "@/lib/heatmap";
 
 type Tab = "recommendations" | "report" | "matchups" | "raw";
-type SortKey = "score" | "name" | "team" | keyof Recommendation["projections"];
+type SortKey = "remainingGames" | "usableGames" | "score" | "name" | "team" | keyof Recommendation["projections"];
 
 interface LeaguesResponse {
   leagues: LeagueSummary[];
@@ -42,15 +50,26 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: "raw", label: "Raw Data" },
 ];
 
-const today = () => new Date().toISOString().slice(0, 10);
+const dateInTimeZone = (timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
+
+const browserTimeZone = () => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"; }
+  catch { return "America/New_York"; }
+};
 
 const requestJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(url, init);
   const payload = (await response.json()) as T & ApiErrorPayload;
   if (!response.ok) {
-    const details = payload.details ? ` ${payload.details}` : "";
-    throw Object.assign(new Error(`${payload.error || "Request failed."}${details}`), {
+    throw Object.assign(new Error(payload.error || "Request failed."), {
       status: response.status,
+      code: payload.code,
     });
   }
   return payload;
@@ -64,9 +83,6 @@ const resultClass = (side: MatchupCategoryRow["side"]) => {
   if (side === "Draw") return "result-draw";
   return "result-neutral";
 };
-
-const initials = (name: string) =>
-  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
 const formatUpdatedAt = (iso: string) =>
   new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -97,15 +113,35 @@ export function DashboardApp() {
   const [leagues, setLeagues] = useState<LeagueSummary[]>([]);
   const [leagueKey, setLeagueKey] = useState("");
   const [week, setWeek] = useState(1);
-  const [targetDate, setTargetDate] = useState(today);
+  const [timeZone, setTimeZone] = useState("America/New_York");
+  const [recommendationHorizon, setRecommendationHorizon] = useState<"daily" | "remaining-week">("remaining-week");
+  const [targetDate, setTargetDate] = useState(() => dateInTimeZone("America/New_York"));
   const [matchupId, setMatchupId] = useState("");
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [teamKey, setTeamKey] = useState("");
+  const [dashboardData, setDashboard] = useState<DashboardResponse | null>(null);
+  const [playerRefreshVersion, setPlayerRefreshVersion] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("recommendations");
   const [loadingLeagues, setLoadingLeagues] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const resolved = window.localStorage.getItem("fantasy-time-zone:v1") || browserTimeZone();
+      setTimeZone(resolved);
+      setTargetDate(dateInTimeZone(resolved));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("fantasy-time-zone:v1", timeZone);
+  }, [timeZone]);
+
+  const dashboard = dashboardData?.league.leagueKey === leagueKey && dashboardData.targetDate === targetDate && dashboardData.timeZone === timeZone && (dashboardData.recommendationHorizon ?? "daily") === recommendationHorizon && dashboardData?.week === week && (!matchupId || dashboardData.selectedMatchupId === matchupId) && (!teamKey || dashboardData.selectedTeamKey === teamKey) && !error ? dashboardData : null;
 
   const selectedLeague = useMemo(
     () => leagues.find((league) => league.leagueKey === leagueKey),
@@ -121,6 +157,7 @@ export function DashboardApp() {
       router.refresh();
       return;
     }
+    setErrorCode(typeof requestError === "object" && requestError && "code" in requestError ? String(requestError.code) : "");
     setError(requestError instanceof Error ? requestError.message : "The dashboard could not load.");
   }, [router]);
 
@@ -133,6 +170,8 @@ export function DashboardApp() {
         if (result.leagues[0]) {
           setLeagueKey(result.leagues[0].leagueKey);
           setWeek(result.leagues[0].currentWeek);
+        } else {
+          setError("No leagues are available for this login.");
         }
       })
       .catch(handleRequestError)
@@ -149,9 +188,12 @@ export function DashboardApp() {
       leagueKey,
       week: String(week),
       date: targetDate,
+      recommendationHorizon,
+      timeZone,
     });
     const nextMatchupId = requestedMatchupId ?? matchupId;
     if (nextMatchupId) params.set("matchupId", nextMatchupId);
+    if (teamKey) params.set("teamKey", teamKey);
     if (forceRefresh) params.set("forceRefresh", "true");
     try {
       const result = await requestJson<DashboardResponse>(`/api/dashboard?${params}`);
@@ -163,24 +205,49 @@ export function DashboardApp() {
     } finally {
       if (currentRequest === requestNumber.current) setLoadingDashboard(false);
     }
-  }, [handleRequestError, leagueKey, matchupId, targetDate, week]);
+  }, [handleRequestError, leagueKey, matchupId, targetDate, timeZone, week, teamKey, recommendationHorizon]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (leagueKey && week) void loadDashboard(false, matchupId);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [leagueKey, loadDashboard, matchupId, targetDate, week]);
+  }, [leagueKey, loadDashboard, matchupId, targetDate, timeZone, week]);
 
   const chooseLeague = (nextLeagueKey: string) => {
     const nextLeague = leagues.find((league) => league.leagueKey === nextLeagueKey);
     setLeagueKey(nextLeagueKey);
     setWeek(nextLeague?.currentWeek ?? 1);
     setMatchupId("");
+    setTeamKey("");
     setDashboard(null);
   };
 
+  const chooseWeek = (nextWeek: number) => {
+    if (!selectedLeague || nextWeek < selectedLeague.startWeek || nextWeek > selectedLeague.endWeek) return;
+    ++requestNumber.current;
+    setTeamKey(teamKey || dashboardData?.selectedTeamKey || selectedLeague.userTeam.key);
+    setMatchupId("");
+    setError("");
+    setLoadingDashboard(true);
+    setWeek(nextWeek);
+  };
+
+  const reportTeams = [...new Map([
+    ...(dashboardData?.matchups.flatMap((matchup) => [matchup.teamA, matchup.teamB]) ?? []),
+    ...(dashboardData?.standingsContext.teams ?? []),
+  ].filter((team) => team.teamKey !== "league-average").map((team) => [team.teamKey, team])).values()];
+
   const chooseMatchup = (nextMatchupId: string) => {
+    const matchup = dashboardData?.matchups.find((item) => item.id === nextMatchupId);
+    if (!matchup) return;
+    const ownerKey = selectedLeague?.userTeam.key;
+    const perspective = matchup.teamB.teamKey === ownerKey ? matchup.teamB.teamKey : matchup.teamA.teamKey;
+    if (dashboard?.selectedMatchupId === nextMatchupId && dashboard.selectedTeamKey === perspective) return;
+    ++requestNumber.current;
+    setError("");
+    setLoadingDashboard(true);
+    setTeamKey(perspective);
     setMatchupId(nextMatchupId);
   };
 
@@ -188,11 +255,12 @@ export function DashboardApp() {
     if (!dashboard) return [];
     const valueFor = (item: Recommendation) => {
       if (sortKey in item.projections) return item.projections[sortKey as keyof Recommendation["projections"]];
-      return item[sortKey as "score" | "name" | "team"];
+      return item[sortKey as "score" | "name" | "team" | "remainingGames" | "usableGames"];
     };
     return [...dashboard.recommendations].sort((left, right) => {
       const a = valueFor(left);
       const b = valueFor(right);
+      if (a == null || b == null) return a == null ? b == null ? 0 : 1 : -1;
       const comparison = typeof a === "number" && typeof b === "number"
         ? a - b
         : String(a).localeCompare(String(b));
@@ -222,11 +290,12 @@ export function DashboardApp() {
       <AppHeader demoMode={dashboard?.demoMode} />
 
       <div className="workspace-shell">
+        <ArenaIntro />
         <section className="control-bar" aria-label="Dashboard filters">
-          <label className="control-group control-league">
-            <span className="control-label">League</span>
+          <div className="control-group control-league">
+            <div className="control-label"><label htmlFor="dashboard-control-1">League</label></div>
             <span className="select-wrap">
-              <select
+              <select id="dashboard-control-1"
                 aria-label="League"
                 value={leagueKey}
                 onChange={(event) => chooseLeague(event.target.value)}
@@ -238,7 +307,7 @@ export function DashboardApp() {
               </select>
               <ChevronDown size={15} aria-hidden="true" />
             </span>
-          </label>
+          </div>
 
           <div className="control-group">
             <span className="control-label">Week</span>
@@ -247,7 +316,7 @@ export function DashboardApp() {
                 type="button"
                 title="Previous week"
                 aria-label="Previous week"
-                onClick={() => setWeek((value) => Math.max(selectedLeague?.startWeek ?? 1, value - 1))}
+                onClick={() => chooseWeek(week - 1)}
                 disabled={!selectedLeague || week <= selectedLeague.startWeek}
               ><Minus size={14} /></button>
               <span>Week {week}</span>
@@ -255,29 +324,29 @@ export function DashboardApp() {
                 type="button"
                 title="Next week"
                 aria-label="Next week"
-                onClick={() => setWeek((value) => Math.min(selectedLeague?.endWeek ?? 24, value + 1))}
+                onClick={() => chooseWeek(week + 1)}
                 disabled={!selectedLeague || week >= selectedLeague.endWeek}
               ><Plus size={14} /></button>
             </div>
           </div>
 
-          <label className="control-group">
-            <span className="control-label">Streaming date</span>
+          <div className="control-group">
+            <div className="control-label"><label htmlFor="dashboard-control-2">Streaming date</label></div>
             <span className="date-wrap">
               <CalendarDays size={15} aria-hidden="true" />
-              <input
+              <input id="dashboard-control-2"
                 aria-label="Streaming date"
                 type="date"
                 value={targetDate}
                 onChange={(event) => setTargetDate(event.target.value)}
               />
             </span>
-          </label>
+          </div>
 
-          <label className="control-group control-matchup">
-            <span className="control-label">Matchup</span>
+          <div className="control-group control-matchup">
+            <div className="control-label"><label htmlFor="dashboard-control-3">Matchup</label></div>
             <span className="select-wrap">
-              <select
+              <select id="dashboard-control-3"
                 aria-label="Matchup"
                 value={matchupId}
                 onChange={(event) => chooseMatchup(event.target.value)}
@@ -289,17 +358,20 @@ export function DashboardApp() {
               </select>
               <ChevronDown size={15} aria-hidden="true" />
             </span>
-          </label>
+          </div>
 
-          <button
-            type="button"
-            className="refresh-button"
-            onClick={() => void loadDashboard(true)}
-            disabled={loadingDashboard || !leagueKey}
-          >
-            <RefreshCw size={16} className={loadingDashboard ? "animate-spin" : ""} aria-hidden="true" />
-            <span>Refresh</span>
-          </button>
+          <div className="control-group control-time-zone">
+            <div className="control-label"><label htmlFor="dashboard-control-4">Time zone</label></div>
+            <span className="select-wrap">
+              <select id="dashboard-control-4" aria-label="Time zone" value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
+                {[...new Set([browserTimeZone(), "America/New_York", "America/Los_Angeles", "Europe/London", "Asia/Taipei", "Asia/Tokyo"])].map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </span>
+          </div>
+
+          <RefreshControl status={dashboardData?.updateStatus} loading={loadingDashboard} disabled={!leagueKey}
+            onRefresh={() => { setPlayerRefreshVersion((value) => value + 1); void loadDashboard(true); }} />
         </section>
 
         {error ? (
@@ -312,22 +384,24 @@ export function DashboardApp() {
         <section className="summary-strip" aria-label="Matchup summary">
           <div className="summary-primary">
             <p className="eyebrow">Selected team</p>
-            <h1>{dashboard?.selectedTeamName ?? selectedLeague?.userTeam.name ?? "Loading league"}</h1>
+            <h1>{dashboard?.selectedTeamName ?? dashboardData?.selectedTeamName ?? selectedLeague?.userTeam.name ?? "Loading league"}</h1>
             <p className="summary-opponent">
               {dashboard ? `vs ${dashboard.opponentName}` : "Preparing your weekly report"}
             </p>
           </div>
           <div className="summary-metrics">
-            <div><span className="metric-value text-[#18845e]">{dashboard ? summary.wins : "--"}</span><span className="metric-label">Winning</span></div>
-            <div><span className="metric-value text-[#c94e43]">{dashboard ? summary.losses : "--"}</span><span className="metric-label">Behind</span></div>
-            <div><span className="metric-value text-[#2878d0]">{dashboard ? summary.close : "--"}</span><span className="metric-label">In play</span></div>
+            <div><span className="metric-value metric-win">{dashboard ? summary.wins : "--"}</span><span className="metric-label">Winning</span></div>
+            <div><span className="metric-value metric-loss">{dashboard ? summary.losses : "--"}</span><span className="metric-label">Behind</span></div>
+            <div><span className="metric-value metric-play">{dashboard ? summary.close : "--"}</span><span className="metric-label">In play<HelpTip topic="inPlay" label="In play" /></span></div>
             <div><span className="metric-value">{dashboard?.recommendations.length ?? "--"}</span><span className="metric-label">Streams</span></div>
           </div>
           <div className="summary-status">
-            {dashboard ? <CheckCircle2 size={16} className="text-[#18845e]" /> : <Clock3 size={16} />}
-            <span>{dashboard ? `${dashboard.cached ? "Cached" : "Live"} at ${formatUpdatedAt(dashboard.generatedAt)}` : "Connecting"}</span>
+            {dashboard ? <CheckCircle2 size={16} className="summary-status-icon" /> : <Clock3 size={16} />}
+            <span>{dashboard ? `${dashboard.updateStatus?.stale ? "Backup" : dashboard.cached ? "Cached" : "Live"} at ${formatUpdatedAt(dashboard.updateStatus?.fetchedAt ?? dashboard.generatedAt)}` : "Connecting"}</span>
           </div>
         </section>
+
+        <UpdateNotice status={dashboard?.updateStatus} />
 
         <nav className="tab-bar" aria-label="Dashboard views">
           {tabs.map((tab) => (
@@ -341,11 +415,42 @@ export function DashboardApp() {
           ))}
         </nav>
 
-        <section className="content-panel">
+        <section className="content-panel" aria-busy={loadingDashboard}>
+          {activeTab === "report" && selectedLeague ? (
+            <div className="panel-heading weekly-report-filter-bar">
+              <div className="weekly-report-controls">
+                <div className="control-group">
+                  <div className="control-label"><label htmlFor="dashboard-control-5">Week</label></div>
+                  <span className="select-wrap">
+                    <select id="dashboard-control-5" aria-label="Weekly report week" value={week} onChange={(event) => chooseWeek(Number(event.target.value))}>
+                      {Array.from({ length: selectedLeague.endWeek - selectedLeague.startWeek + 1 }, (_, index) => {
+                        const value = selectedLeague.startWeek + index;
+                        return <option key={value} value={value}>Week {value}{value === selectedLeague.currentWeek ? " (Current)" : ""}</option>;
+                      })}
+                    </select>
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </span>
+                </div>
+                <div className="control-group">
+                  <div className="control-label"><label htmlFor="dashboard-control-6">Your team</label></div>
+                  <span className="select-wrap">
+                    <select id="dashboard-control-6" aria-label="Weekly report team" value={teamKey || dashboardData?.selectedTeamKey || selectedLeague.userTeam.key}
+                      disabled={loadingDashboard || !reportTeams.length} onChange={(event) => { setTeamKey(event.target.value); setMatchupId(""); }}>
+                      {reportTeams.map((team) => <option key={team.teamKey} value={team.teamKey}>{team.name}</option>)}
+                    </select>
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {activeTab === "report" && error && !dashboard ? <EmptyState title={errorCode === "PROVIDER_BUSY" ? "資料服務忙碌中，請稍後重試" : "尚無對戰數據"} detail={errorCode === "PROVIDER_BUSY" ? error : `Week ${week} 的資料目前無法取得，請選擇其他週次或重試。`} /> : null}
           {loadingDashboard && !dashboard ? <LoadingRows /> : null}
           {!loadingDashboard && !dashboard && !error ? (
             <EmptyState title="No dashboard data yet" detail="Choose a league to load its current matchup." />
           ) : null}
+          {activeTab === "recommendations" ? <div className="inline-notice"><label>推薦期間 <select aria-label="推薦期間" value={recommendationHorizon} onChange={(event) => { ++requestNumber.current; setRecommendationHorizon(event.target.value as "daily" | "remaining-week"); }}><option value="daily">當日</option><option value="remaining-week">本週剩餘</option></select></label></div> : null}
+          {dashboard && activeTab === "recommendations" ? <InjuryAdvice leagueKey={leagueKey} teamKey={dashboard.selectedTeamKey} week={week} date={targetDate} timeZone={timeZone} refreshVersion={playerRefreshVersion} /> : null}
           {dashboard && activeTab === "recommendations" ? (
             <RecommendationsView
               dashboard={dashboard}
@@ -356,7 +461,8 @@ export function DashboardApp() {
             />
           ) : null}
           {dashboard && activeTab === "report" ? <WeeklyReportView dashboard={dashboard} /> : null}
-          {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={chooseMatchup} /> : null}
+          {activeTab === "report" && leagueKey && (matchupId || dashboardData?.selectedMatchupId) ? <MatchupPlayerDetails ready={Boolean(dashboard)} leagueKey={leagueKey} week={week} matchupId={matchupId || dashboardData!.selectedMatchupId} selectedTeamKey={teamKey || dashboardData?.selectedTeamKey || ""} refreshVersion={playerRefreshVersion} /> : null}
+          {dashboard && activeTab === "matchups" ? <MatchupsView dashboard={dashboard} onChoose={(id) => { setActiveTab("report"); chooseMatchup(id); }} /> : null}
           {dashboard && activeTab === "raw" ? <RawDataView dashboard={dashboard} /> : null}
           {loadingDashboard && dashboard ? <div className="panel-loading"><RefreshCw size={16} className="animate-spin" /> Updating</div> : null}
         </section>
@@ -389,66 +495,73 @@ function SortButton({ label, column, active, direction, onSort }: {
 }
 
 function RecommendationsView({ dashboard, recommendations, sortKey, sortDirection, onSort }: RecommendationsViewProps) {
+  const scoreHelp = scoreHelpFor(recommendations);
   const scheduleAvailable = dashboard.schedule.status === "available";
+  const scheduleUnverified = dashboard.schedule.status === "unverified";
   const gameDay = scheduleAvailable && dashboard.teamsPlaying.length > 0;
-  const scheduleLabel = !scheduleAvailable
-    ? "Schedule unavailable"
+  const scheduleLabel = scheduleUnverified
+    ? "Schedule unverified"
+    : !scheduleAvailable
+      ? "Schedule unavailable"
     : gameDay
       ? `${dashboard.teamsPlaying.length} NBA teams play`
       : "No NBA games scheduled";
-  const scheduleSource = dashboard.schedule.source
-    ? `Schedule source: ${dashboard.schedule.source === "balldontlie" ? "BALLDONTLIE" : dashboard.schedule.source.toUpperCase()}`
-    : undefined;
   const emptyDetail = !scheduleAvailable
     ? "Yahoo returned no available players to rank."
     : gameDay
       ? "No available player has a game on the selected date."
       : "There are no NBA games on the selected date.";
-  const modelStatusLabel = dashboard.model.selectionStatus === "historical-validated"
+  const modelStatusLabel = dashboard.recommendationHorizon === "remaining-week" ? "整週推估・未回測" : dashboard.model.selectionStatus === "historical-validated"
     ? "Backtested"
     : "Baseline retained";
+  const ariaSort = (key: SortKey): "ascending" | "descending" | "none" => {
+    if (sortKey !== key) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  };
+  const unsupported = dashboard.categoryCoverage.filter((category) => category.coverage === "unsupported");
   return (
     <>
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Daily waiver board</p>
+          <p className="eyebrow">{dashboard.recommendationHorizon === "remaining-week" ? "Remaining-week waiver board" : "Daily waiver board"}</p>
           <h2>Best available players</h2>
           <p>{dashboard.freeAgentCount} available players analyzed by {dashboard.model.name}.</p>
         </div>
         <div className="recommendation-statuses">
-          <span className={`model-status ${dashboard.model.selectionStatus}`} title={dashboard.model.backtestMessage}>
-            {dashboard.model.version} · {modelStatusLabel}
-          </span>
-          <div
-            className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}
-            title={scheduleSource}
-          >
-            <CalendarDays size={15} />
-            <span>{scheduleLabel}</span>
-          </div>
+          <details className="info-popover"><summary className={`model-status ${dashboard.model.selectionStatus}`}>{dashboard.model.version} · {modelStatusLabel}</summary><div>{dashboard.model.validationLabel ?? "2026REG single-season validation"}<br />{dashboard.model.backtestMessage}</div></details>
+          <details className="info-popover"><summary className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}><CalendarDays size={15} /><span>{scheduleLabel}</span></summary><div>{dashboard.schedule.message ?? `Source: ${dashboard.schedule.source ?? "none"}`}</div></details>
         </div>
       </div>
+      <p className="inline-notice">下方 PTS／REB 等統計為單場預估，非當週實績。NBA 剩餘場次不保證球員實際出賽。</p>
+      {dashboard.recommendationPeriod ? <p className="inline-notice">計算區間：{dashboard.recommendationPeriod.startDate ?? "未知"} 至 {dashboard.recommendationPeriod.endDate ?? "未知"} · {dashboard.recommendationPeriod.timeZone}。{dashboard.recommendationPeriod.message}{dashboard.recommendationHorizon === "remaining-week" ? " 整週分數採每日陣容淨貢獻重新評分，屬未經整週回測的規則推估。" : ""}</p> : null}
+      {dashboard.dataQuality.status !== "complete" || dashboard.dataQuality.stale ? (
+        <div className="inline-notice warning"><AlertCircle size={15} />Yahoo data is {dashboard.dataQuality.stale ? "stale" : "partial"}. {dashboard.dataQuality.warnings.join(" ") || "Some stat windows were unavailable."}</div>
+      ) : null}
+      {scheduleUnverified ? <div className="inline-notice warning"><CalendarDays size={15} />Game availability and lineup locks are unverified for this date.</div> : null}
+      {unsupported.length ? <div className="inline-notice warning"><AlertCircle size={15} />Unsupported categories are excluded: {unsupported.map((category) => category.displayName).join(", ")}.</div> : null}
       {!dashboard.lineupAvailable && dashboard.lineupMessage ? (
         <div className="inline-notice">{dashboard.lineupMessage} Recommendations show full-game value.</div>
       ) : null}
       {!recommendations.length ? (
-        <EmptyState title="No eligible streamers" detail={emptyDetail} />
+        <EmptyState title={dashboard.recommendationHorizon === "remaining-week" ? "沒有可用的整週推薦" : "No eligible streamers"} detail={dashboard.recommendationHorizon === "remaining-week" ? dashboard.recommendationPeriod?.message ?? "區間內沒有符合資格的球員；可切換至當日推薦。" : emptyDetail} />
       ) : (
         <div className="table-scroll">
           <table className="data-table recommendation-table">
             <thead>
               <tr>
                 <th className="rank-column">#</th>
-                <th><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
-                <th><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
+                <th aria-sort={ariaSort("name")}><SortButton label="Player" column="name" active={sortKey === "name"} direction={sortDirection} onSort={onSort} /></th>
+                <th aria-sort={ariaSort("team")}><SortButton label="Team" column="team" active={sortKey === "team"} direction={sortDirection} onSort={onSort} /></th>
                 <th>Game</th>
-                <th><SortButton label={dashboard.model.selectedModel === "probability" ? "Swing" : "Fit"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /></th>
-                <th>Confidence</th>
-                <th className="lineup-column">Lineup</th>
-                <th className="reason-column">Helps</th>
-                <th className="reason-column">Watch</th>
+                <th aria-sort={ariaSort("remainingGames")}><SortButton label="本週剩餘場次" column="remainingGames" active={sortKey === "remainingGames"} direction={sortDirection} onSort={onSort} /></th>
+                {dashboard.recommendationHorizon === "remaining-week" ? <th aria-sort={ariaSort("usableGames")}><SortButton label="預估可排入場次" column="usableGames" active={sortKey === "usableGames"} direction={sortDirection} onSort={onSort} /><HelpTip topic="weeklyRecommendation" /></th> : null}
+                <th aria-sort={ariaSort("score")}><SortButton label={dashboard.objective === "fantasy-points" ? "Net FP" : dashboard.objective === "roto-points" ? "Roto gain" : "Swing"} column="score" active={sortKey === "score"} direction={sortDirection} onSort={onSort} /><HelpTip topic={dashboard.recommendationHorizon === "remaining-week" ? "weeklyRecommendation" : scoreHelp.topic} label="推薦分數" /></th>
+                <th>Confidence<HelpTip topic="confidence" /></th>
+                <th className="lineup-column">Lineup<HelpTip topic="lineup" label="Lineup" /></th>
+                <th className="reason-column">Helps<HelpTip topic="helps" label="Helps" /></th>
+                <th className="reason-column">Watch<HelpTip topic="helps" label="Watch" /></th>
                 {(["pts", "reb", "ast", "stl", "blk", "threePm", "turnovers"] as const).map((key) => (
-                  <th key={key}><SortButton label={{ pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", threePm: "3PM", turnovers: "TO" }[key]} column={key} active={sortKey === key} direction={sortDirection} onSort={onSort} /></th>
+                  <th key={key} aria-sort={ariaSort(key)}><SortButton label={{ pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", threePm: "3PM", turnovers: "TO" }[key]} column={key} active={sortKey === key} direction={sortDirection} onSort={onSort} /></th>
                 ))}
               </tr>
             </thead>
@@ -458,14 +571,16 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                   <td className="rank-column"><span className={index < 3 ? "rank-number top" : "rank-number"}>{index + 1}</span></td>
                   <td>
                     <div className="player-cell">
-                      <span className="player-avatar">{initials(player.name)}</span>
+                      <PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} />
                       <span><strong>{player.name}</strong><small>{player.position} · {player.projectionBasis === "blended" ? "Blended form" : player.period === "lastmonth" ? "Last 30 days" : player.period === "lastweek" ? "Last 7 days" : "Season"}</small></span>
                     </div>
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
                   <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
-                  <td title={player.scoreType === "matchup-probability" ? "Change in matchup win probability" : player.scoreType === "expected-categories" ? "Expected categories added" : "Weighted category fit versus the available-player pool"}><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span></td>
-                  <td><span className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence}</span></td>
+                  <td>{player.remainingGames == null ? "—" : `${player.remainingGamesComplete === false ? "已確認至少 " : ""}${player.remainingGames}`}</td>
+                  {dashboard.recommendationHorizon === "remaining-week" ? <td>{player.usableGames ?? "—"}</td> : null}
+                  <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span>{scoreHelp.mixed ? <HelpTip topic={scoreTopic(player.scoreType)} label={`${player.name} 分數單位`} /> : null}</td>
+                  <td><details className="info-popover confidence-popover"><summary className={`confidence-chip ${player.confidence.toLowerCase()}`}>{player.confidence} {player.confidenceScore}</summary><div>{player.confidenceReasons.map((reason) => <span key={reason}>{reason}</span>)}</div></details></td>
                   <td className="lineup-column"><span className={`lineup-label ${player.lineupImpact.status}`}>{player.lineupImpact.label}</span></td>
                   <td className="reason-column"><div className="tag-list">{player.reason.length ? player.reason.map((reason) => <span className="help-tag" key={reason}>{reason}</span>) : <span className="dash">--</span>}</div></td>
                   <td className="reason-column"><div className="tag-list">{player.watchouts.length ? player.watchouts.map((watchout) => <span className="watch-tag" key={watchout}>{watchout}</span>) : <span className="dash">--</span>}</div></td>
@@ -495,7 +610,7 @@ function WeeklyReportView({ dashboard }: { dashboard: DashboardResponse }) {
       </div>
       <div className="table-scroll">
         <table className="data-table report-table">
-          <thead><tr><th>Category</th><th>{dashboard.selectedTeamName}</th><th>{dashboard.opponentName}</th><th>Result</th><th>Priority</th><th>Direction</th></tr></thead>
+          <thead><tr><th>Category</th><th>{dashboard.selectedTeamName}</th><th>{dashboard.opponentName}</th><th>Result<HelpTip topic="scoreResult" /></th><th>Priority<HelpTip topic="priority" /></th><th>Direction</th></tr></thead>
           <tbody>
             {dashboard.categoryNeeds.map((row) => (
               <tr key={row.statId}>
@@ -563,7 +678,7 @@ function RawDataView({ dashboard }: { dashboard: DashboardResponse }) {
   return (
     <>
       <div className="panel-heading"><div><p className="eyebrow">Diagnostics</p><h2>Dashboard response</h2><p>Exact normalized data returned by the private server route.</p></div></div>
-      <pre className="raw-data">{JSON.stringify(dashboard, null, 2)}</pre>
+      <div className="raw-help"><a href="/guide#raw">查看原始資料說明</a></div><pre className="raw-data">{JSON.stringify(dashboard, null, 2)}</pre>
     </>
   );
 }

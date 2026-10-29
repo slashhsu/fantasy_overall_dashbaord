@@ -7,14 +7,14 @@ A private, Vercel-ready Yahoo Fantasy Basketball workspace. It discovers the lat
 - Password-protected dashboard with a signed, HTTP-only session cookie.
 - League, week, date, and matchup selection.
 - Weekly category results with close-loss and close-win context.
-- Daily recommendations from the held-out validated Matchup Swing model.
+- Format-aware recommendations for H2H Each Category, H2H Most Categories, Points, and Rotisserie leagues.
 - Evaluation-ready blended and empirical-Bayes probability candidates using season, last 30 days, and last 7 days.
 - Dated Yahoo roster optimization that accounts for active-slot eligibility and displaced starters.
 - Confidence, category-level reasons, and percentage-volume effects for every recommendation.
 - Sortable projections for PTS, REB, AST, STL, BLK, 3PM, and TO.
-- Brief server cache plus an explicit refresh control.
+- Bounded TTL/LRU cache with single-flight requests, one-hour stale-if-error fallback, and an explicit refresh control.
 - Demo mode for local UI testing without Yahoo credentials.
-- `/draft` live draft board with Yahoo ADP, snake-turn timing, positional scarcity, and dynamic roster fit.
+- `/draft` supports Snake, Linear, Salary Cap/Auction, and Offline draft boards with Yahoo ADP, positional scarcity, dynamic roster fit, and auction budgets.
 - Target, balanced, and punt controls for every enabled league category.
 - Yahoo draft-result sync plus a manual mock-draft mode with undo and locally persisted picks.
 
@@ -26,10 +26,12 @@ For every available player, the implementation:
 
 1. Converts the latest usable Yahoo season totals into per-game category projections and uses attempt-volume impact for FG%, FT%, and 3PT%.
 2. Normalizes values against the league-sized draftable pool and simulates the marginal category-win or roto-value change after adding the player.
-3. Reassigns roster positions, measures scarcity against players likely to remain at the following snake turn, and estimates return probability from Yahoo ADP.
+3. Reassigns roster positions, measures scarcity against players likely to remain at the following turn, and displays an uncalibrated `Estimated Return` market estimate from Yahoo ADP.
 4. Re-ranks immediately after every Yahoo-synced or manual pick. Weak categories can be targeted or explicitly punted; strongly unrecoverable categories are down-weighted only after enough roster evidence exists.
 
 During the offseason, the service first looks for usable current-game statistics and then falls back to the previous accessible Yahoo NBA season. Players without category history, including some rookies, remain visible through Yahoo ADP but are labeled `Market`; category production is never invented from missing totals. Yahoo's `draft_analysis` and `draftresults` resources provide market and live-board context, while all league credentials remain server-side.
+
+Salary Cap mode defaults to `$200` per team. Recommendations allocate discretionary dollars above replacement level, adjust for observed league inflation, reserve `$1` for every remaining roster spot, and show Yahoo AAV, suggested price, value, and maximum legal bid.
 
 ## Local Setup
 
@@ -89,7 +91,7 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `APP_PASSWORD` | Yes | Private dashboard password. |
-| `SESSION_SECRET` | Recommended | Cookie signing key; falls back to `APP_PASSWORD`. |
+| `SESSION_SECRET` | Production required | Independent cookie signing key of at least 32 characters. Only local/demo mode may fall back to `APP_PASSWORD`. |
 | `YAHOO_CLIENT_ID` | Live mode | Yahoo OAuth application ID. |
 | `YAHOO_CLIENT_SECRET` | Live mode | Yahoo OAuth application secret. |
 | `YAHOO_REFRESH_TOKEN` | Live mode | Long-lived Yahoo refresh token. |
@@ -99,13 +101,17 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | `FREE_AGENT_LIMIT` | No | Maximum paginated available players; default `300`. |
 | `YAHOO_DEMO_MODE` | No | Use deterministic preview data; default `false`. |
 
+Login throttling is process-local: five failed attempts in 15 minutes lock that client for 15 minutes, with exponential failure delays up to two seconds. Vercel instances do not share this state because the app intentionally has no Redis/KV dependency.
+
 ## Verification
 
 ```bash
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:e2e
 pnpm build
+pnpm audit --prod --audit-level=high
 ```
 
 ## Historical Recommendation Backtest
@@ -116,10 +122,307 @@ The production app does not call SportsDataIO. Historical model evaluation is an
 cp .env.backtest.example .env.backtest.local
 set -a; source .env.backtest.local; set +a
 pnpm backtest:recommender -- --season=2026REG
+# Future multi-season evaluation:
+pnpm backtest:recommender -- --seasons=2025REG,2026REG
 ```
 
 Raw provider responses are cached under `.cache/recommender/` and excluded from Git. The command discovers regular-season dates from the Discovery Lab schedule feed, checkpoints actual and historical pregame projection downloads, and can resume after an API interruption. Pregame projections define the evaluable player pool, while unexpected DNPs remain zero-valued outcomes instead of disappearing from the sample. The production-parity baseline, blended projections, and Matchup Swing probability model are compared using chronological training, validation, and held-out scenarios. The command writes aggregate evidence to `reports/recommender-backtest.json` and updates `model-artifacts/recommender.json`.
 
-The checked-in `2026REG` artifact promotes Matchup Swing. Its held-out clustered-bootstrap improvement over the production-parity baseline has a 95% interval of `0.01699` to `0.08186`, and its projection NMAE is `0.64635` versus the baseline's `0.65102`. Both promotion checks therefore pass. Probability residual calibration is selected on validation scenarios only; the selected `reference-static` calibration is then applied unchanged to held-out data and production.
+The checked-in v2 `2026REG single-season validation` artifact promotes Matchup Swing. Its held-out clustered-bootstrap improvement over the production-parity baseline has a 95% interval of `0.01699` to `0.08186`, and its projection NMAE is `0.71172` versus the baseline's `0.71479`. Both promotion checks therefore pass. The report contains 435 standard 9-category scenarios plus an extended OREB, derived A/T, and DD profile. Only the standard categories are labeled validated; OREB/A/T/DD remain modeled-unvalidated until multi-season evidence is available.
 
 The app is recommendation-only. It does not add or drop Yahoo players.
+
+### Sharing with league members
+
+The server uses an in-memory cache (default `CACHE_TTL_SECONDS=300`) with per-key
+single-flight loading and a 60-second forced-refresh cooldown measured from the
+last successful fetch. Reading a cache entry does not extend that cooldown.
+Missing keys still load normally, and ordinary reads continue to follow their
+resource TTL (including the draft results' shorter sync TTL). Upstream failures
+can use cached backup data for up to one hour after the normal TTL expires.
+
+All Fantasy API calls, including retries, pass through an instance-wide queue:
+maximum two concurrent requests, ten-second queue timeout. A Yahoo 429 pauses
+new Fantasy requests for its numeric or HTTP-date `Retry-After`, or 60 seconds
+when absent/invalid. Queued calls fail promptly during this pause; callers can
+use backup cache data. OAuth refresh remains deduplicated separately.
+
+Dashboard, draft and league responses may include `updateStatus` with `fetchedAt`
+(the oldest contributing cached resource), `stale`, and `nextRefreshAt` (the latest
+contributing resource cooldown). The UI shows backup data timestamps and a refresh
+countdown. Queue pressure or rate limiting without backup returns HTTP 503,
+`code: PROVIDER_BUSY`, and a `Retry-After` header.
+
+A `fantasy_usage` JSON log aggregates activity over 60 seconds: Yahoo request
+attempts and average latency, 429s, cache hits, merged loads, forced refreshes
+served from cooldown, and queue timeouts. Timers/logs are best effort: a serverless
+instance may freeze before emission. No credentials or response bodies are logged.
+
+These protections are **per process/instance**, not a distributed quota. Different
+Vercel instances do not share cache, queues, OAuth state or cooldowns, and restarts
+reset them. No Redis or paid service is required. Start with one league (roughly
+10–20 participants), observe latency/errors and provider usage, then assess scale;
+the simulated concurrency tests do not establish a production user capacity.
+
+
+### Weekly player details
+
+Weekly Report includes a collapsed **球員當週數據** section. Expanding it requests
+`GET /api/matchup-players?leagueKey=...&week=...&matchupId=...`; it uses the same
+private session as the dashboard. `forceRefresh=true` uses the existing per-key
+60-second cooldown. Responses include the actual period, Pacific-time cutoff,
+team rosters, missing roster/stat dates, enabled categories and `updateStatus`.
+
+The roster lists everyone appearing on each team's daily roster during the
+matchup. Stats are **fantasy-team contributions**: only dates when Yahoo's dated
+roster places that player in an enabled starting slot contribute. BN/IL/NA days
+and days before joining or after leaving that team are excluded. Trades can put
+the same athlete in both tables, with separate scoring dates and totals. GP is
+credited appearances, not the athlete's whole NBA-week GP. Each row exposes its
+roster/scoring dates for audit. Unknown positions or missing roster dates mark
+attribution incomplete; they never fall back to whole-week NBA totals.
+
+The response identifies `statScope: fantasy-team-contribution`. Complete,
+comparable category totals are checked against Yahoo's team scoreboard; any
+mismatch is surfaced without changing player numbers to fit the team total.
+Ratios use the credited dates' underlying made/attempted totals.
+Dates come from Yahoo matchup boundaries or `/game/{gameKey}/game_weeks`; no live
+seven-day calendar is assumed. Current periods stop at today's Pacific date;
+future periods do not load player data. Daily player stats are batched in groups
+of 25 and cached independently, while daily roster data is shared by team/date.
+Only two producer tasks are scheduled at a time, in addition to the shared Yahoo
+request gate. Large historical periods can still take time on a cold cache.
+
+Counting stats use actual daily values; shooting percentages and assist/turnover
+ratios are recomputed from totals. Missing values remain missing (shown as `—`),
+while explicit GP=0 permits zero counting stats for no-appearance days. Missing
+roster dates mean the membership list itself may be incomplete. Partial and
+backup results are labeled; provider failures do not replace the category report.
+Demo mode uses explicitly labeled synthetic sample periods and player totals.
+
+Weekly detail tables retain observed totals even when another date is missing.
+Incomplete counting totals show plain numbers with a section-level partial-data
+notice, while ratios computed from
+matching available numerator/denominator days show `*`. Entirely unknown values
+remain `—`. Missing dates are never silently treated as zero, and incomplete
+subtotals must not be interpreted as final weekly results.
+
+### Injury opportunities and return reminders
+
+Recommendations now includes **傷病機會與復出提醒**, loaded only when its section
+enters the viewport. The authenticated read-only `/api/injury-advice` endpoint
+accepts `leagueKey`, `teamKey`, `week`, `date`, `timeZone`, optional `watch` (up to
+50 player keys), and optional `forceRefresh=true`. It validates league/team access
+through the existing dashboard service. Historical/future dates or non-current
+weeks do not receive today's injury advice.
+
+The service reuses free-agent pools, roster windows and recommendation scores.
+Taken-player metadata is paged for the current league (up to 1,000 players, with
+incomplete coverage explicitly flagged), so injuries on other managers' rosters
+are included. Stat windows are fetched only for injured/questionable or observed
+players; dated appearance checks cover the last seven days for watched players
+whose status cleared. All calls use the existing shared cache, 60-second forced
+refresh cooldown and two-slot Yahoo gate. Stats producers are sequential rather
+than creating a large queue. New injury requests do not block the recommendation
+response, although they still share the instance's Yahoo request budget.
+
+Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
+- Important injured players require at least 5 games and 28 MPG in the last month.
+  A sufficient month takes precedence over the season, even if the season average
+  is higher. Only insufficient/invalid monthly evidence falls back to a season
+  sample of at least 5 games. Neither window proves pre-injury medical health.
+- Featured substitutes must be available, have a known clear status, share the
+  injured player's NBA team and an explicit position, and appear in the first 50
+  existing matchup recommendations. Category formats also require a category
+  contribution reason; points formats do not. Original scoring is unchanged.
+- `O`, `OUT`, `INJ`, `IL`, `IL+` qualify as absence. Featured beneficiaries need
+  at least 3 last-week games, 24 MPG and a gain of at least 5 MPG over a last-month
+  sample of at least 5 games. Exact boundaries qualify.
+- `Q`, `GTD`, `DTD`, `D` only qualify for the collapsed watchlist. Positive minute
+  changes with insufficient (but nonzero, known) samples also qualify for watching.
+  Fully sampled candidates below either minute threshold are excluded, even with
+  a Q flag. Missing or nonpositive time evidence is not a recommendation.
+- Partial/stale sources demote otherwise eligible candidates to watching. The API
+  keeps `opportunities` for featured results and adds `watchlist`, `exclusionCounts`,
+  month/season GP, grouping reasons and related injury baseline evidence.
+- Each section sorts by existing score, minute gain, then stable player keys;
+  at most 2 substitutes per injured player and 5 unique substitutes per section.
+  Shared substitutes merge related injured players. Featured players are omitted
+  from the watchlist. Empty results show exclusion reasons instead of filler.
+- Clearing an injury flag yields only a possible-return message. Confirmed return
+  requires positive dated GP after the last injury observation date; same-day
+  appearances are inconclusive. A four-minute drop from the substitute's observed
+  last-week MPG, with at least three current last-week games, is shown separately
+  from merely anticipating a smaller role. Neither automatically means drop.
+
+Browser storage is scoped by league and selected fantasy team under
+`fantasy-injury:v2:<leagueKey>:<teamKey>`. On access, the old v1 key is removed;
+old-version observations are rejected to avoid carrying forward loose pairings.
+Injury/substitute pairs are capped at 50 and retained for 30 days, alongside at
+most 50 healthy-status minute observations (not used to override server eligibility).
+Only complete, fresh (within 10 minutes), non-stale snapshots update observations
+or produce return alerts. Only featured candidates establish new pairs, including
+all merged related injuries; watch candidates never establish pairs. Existing
+active pairs can still be monitored after their substitute is added to the roster.
+A new episode of a closed pair must qualify again before reopening.
+The substitute must still be on the selected roster, both athletes must still
+share the observed NBA team, and a dismissal applies to that injury episode.
+New qualifying episodes reset the dismissal. No credentials are stored. Another
+device, private browsing, blocked storage or clearing site data can lose these reminders.
+No external news feed, push notification, database or automatic roster action is
+introduced. Demo mode uses labeled fictional players and synthetic minute trends.
+
+### Administrator and restricted member logins
+
+`APP_PASSWORD` is the administrator credential; that role can see every league
+available to the configured Yahoo account. Set `MEMBER_PASSWORD` to a different
+credential to enable a restricted login. `MEMBER_ALLOWED_LEAGUE_KEYS` is a
+comma-separated server-side allowlist; an empty list grants members no leagues.
+The requested production allowlist is `478.l.12355,478.l.45261` (fixed league IDs,
+so renaming either league does not change access). New-season league IDs must be
+reviewed and configured explicitly. Never commit actual passwords or expose them
+through `NEXT_PUBLIC_` variables. The example file contains placeholders only.
+
+For rollout, configure the two login credentials and the allowlist on the deployment
+platform, retain the independent `SESSION_SECRET`, and redeploy this branch. If the
+former shared password is now meant for members, move it to `MEMBER_PASSWORD` and
+replace `APP_PASSWORD` with the designated administrator credential **before**
+rollout; leaving the old shared credential in `APP_PASSWORD` keeps it an admin
+credential. Merely
+pushing code does not change production environment variables. Missing member
+credentials disable member login; identical admin/member credentials or malformed
+allowlist keys are configuration errors. Existing administrator-only deployments
+can continue operating with no member credential configured.
+
+Sessions use a signed version-2 payload with an explicit `admin` or `member` role.
+All old expiry-only sessions are invalid and everyone must log in again after
+rollout. HttpOnly, SameSite, Secure-in-production and the 14-day lifetime are
+unchanged. Removing the member credential disables existing member sessions;
+allowlist edits apply to existing sessions on their next request. `/api/session`
+reports the authenticated role without disclosing credentials.
+
+Every league data endpoint checks the role and requested league key before invoking
+its data loader or accessing league data caches: dashboard, draft, weekly player
+details and injury advice. Unauthenticated calls return 401; denied league calls
+return 403 with `FORBIDDEN`. `/api/leagues` filters each response for its requesting
+role without mutating the shared cached source list. Shared Yahoo/cache state
+never serves as proof that a user is authorized. The browser has no league
+permission authority, and the public Google verification file remains public.
+
+Role tests cover both requested league IDs, direct API bypass attempts, admin-first
+cache reuse, tampered/expired/old sessions, empty member allowlists, and distinct
+passwords. Desktop/mobile smoke tests use fixture credentials with a one-of-two
+synthetic league allowlist, including login, league switching and logout.
+
+### Contextual help and the user guide
+
+Workspaces show Traditional Chinese ⓘ hints only for computed model scores,
+estimates and decision rules. Basic stats, Yahoo market data, ordinary controls,
+cache/refresh and missing-value definitions live only in the authenticated
+`/guide`, linked from the intro and shared header. Necessary warnings remain
+visible as text, and the recommendation table identifies its stats as per-game
+projections rather than actual weekly totals.
+`lib/help-content.ts` is the shared glossary for both. `HELP_USAGE` classifies
+model versus guide-only topics; `HelpTip` accepts only `ModelHelpKey` to prevent
+ordinary fields from acquiring icons again. The guide uses the same
+session validation as the dashboard; unauthenticated visitors return to `/login`.
+No help interaction calls Yahoo or a data API. See
+[the coverage matrix](docs/help-coverage.md) for fields and interpretation checks.
+
+Hints support pointer hover, keyboard focus, touch/click pinning, Escape, outside
+click and repeated-click dismissal. Portaled fixed-position panels avoid clipping
+by horizontally scrolling tables and stay within the viewport. Sort/select
+buttons and labels do not contain hint buttons. Existing per-player confidence
+panels retain their evidence. Homogeneous score units are explained once in the
+header, with per-player hints reserved for mixed units. Basic/custom stat
+definitions remain in the guide. Injury responses optionally carry their existing recommendation
+`scoreType` so those hints also use the correct units; scoring is unchanged.
+
+### Public homepage and search indexing
+
+The canonical public origin is `https://www.fantasybasketball.fun` (defined in
+`lib/seo.ts`). Anonymous visitors to `/` receive a server-rendered feature
+introduction with `index, follow` and a self-referencing canonical URL. Signed-in
+visitors still see the dashboard at `/`, with `noindex, nofollow`. The route is
+always dynamic so public and authenticated HTML are not shared in a CDN cache.
+The introduction makes no Yahoo or data API requests and contains no league data.
+
+Root layout defaults remain `noindex, nofollow` for login, draft, guide and unknown
+pages. APIs also return `X-Robots-Tag: noindex, nofollow`. Preview homepages retain
+`noindex`; production homepages override the private default. `/sitemap.xml`
+contains only the public canonical homepage. `/robots.txt` allows crawling pages
+so Google can read intentional private-page `noindex` tags, and disallows `/api/`.
+Authentication and league authorization remain the actual access protection.
+
+The former `fantasyoveralldashbaord.vercel.app` hostname was observed returning
+Vercel `DEPLOYMENT_NOT_FOUND`; it is not the canonical origin. After production
+rollout, verify the new domain in Google Search Console, submit
+`https://www.fantasybasketball.fun/sitemap.xml`, and inspect/request indexing for
+the public homepage. The existing Google verification file remains in `public/`.
+Private login/workspace URLs being excluded by noindex is intentional. If the old
+hostname is restored under the same Vercel project, configure a permanent redirect
+to the new origin in Vercel; application code cannot redirect a deployment-not-found
+response that never reaches the application. Indexing requires Google to recrawl
+and is not guaranteed immediately after deployment.
+
+### Remaining-week recommendations
+
+The dashboard defaults to `remaining-week`; API clients omitting
+`recommendationHorizon` retain the original `daily` behavior. Both modes show
+remaining NBA games from the streaming date (clamped to today and Yahoo's actual
+matchup start) through the matchup end. Game-week calendar dates are used when
+scoreboard dates are missing; no fixed seven-day assumption is made. Schedule
+queries pad both date boundaries, deduplicate tipoffs, and assign them to the
+selected timezone. Started, completed, postponed and unverifiable games do not
+count as confirmed remaining games. Counts describe team fixtures, not a promise
+that a player will appear.
+
+Weekly scoring considers the entire eligible pool, including players off on the
+streaming date, before selecting 50 results. Each day's dated roster and active
+slots are optimized with and without a candidate. Locked starters continue to
+occupy slots. The model aggregates net projected counts and shot attempts, then
+recalculates category probability, Fantasy points or Roto rank value once. Daily
+scores/probabilities are never multiplied by games or added together. Displayed
+PTS/REB/etc remain per-game forecasts. Usable games are a model estimate, not
+actual Yahoo additions, drops or future transactions. Weekly scoring is a rule
+estimate with no weekly backtest validation; the existing daily model is unchanged.
+
+Raw dated schedules/rosters reuse the five-minute shared cache, inflight merging,
+60-second refresh cooldown, stale reporting and Yahoo request gate. Producers
+are bounded to two tasks. Missing/stale schedules or insufficient roster data
+stop weekly scoring and show a reason with the daily-mode selector still usable;
+partial game counts are labelled as confirmed lower bounds, never complete zeros.
+The authenticated guide shares the weekly model annotation. No new public API or
+external data service is introduced.
+
+### Yahoo minute fields and injury eligibility
+
+Yahoo NBA stat IDs 2 (MIN, total minutes) and 26 (MPG, minutes per game) must
+remain distinct. Both accept decimal minutes and `MM:SS`; only total MIN is
+divided by GP. Injury evaluation prefers valid totals, otherwise uses valid MPG
+directly. Empty values and dashes stay missing. GS is stat 1, DD is 27 and TD is
+28; GS must never be used as a Yahoo rank proxy. Weekly detail sums totals and
+counting stats, and does not add MPG averages.
+
+The injury empty state distinguishes missing minute data, fewer than five
+baseline games, and a genuine baseline below 28 MPG. Early-season players can
+legitimately lack five games; missing evidence must not be presented as proof
+that their role is unimportant. Existing 28/24/5-minute and sample thresholds
+remain unchanged. Partial sources still prevent featured recommendations and
+new return observations; qualified candidates may appear in the watchlist.
+
+BALLDONTLIE schedule lifecycle parsing accepts its documented `7:00 pm ET`
+pre-game strings and quarter/halftime states, preferring explicit `status_state`
+when present. Incomplete primary timestamps or states trigger ESPN fallback.
+An ESPN empty slate is accepted as an off-day only when its NBA day whitelist
+and season date bounds confirm it (or the independent primary also confirms an
+empty slate). Malformed, contradictory or incomplete responses remain unknown.
+Weekly errors report the missing schedule dates so an unknown date can be
+investigated rather than being silently treated as a zero-game day.
+
+Weekly lineup completeness only requires projections for healthy, non-IL players
+with an upcoming game that day. Missing stats for injured/reserve-list players,
+players off that day or already-locked starters do not invalidate all weekly
+recommendations. Locked starters' roster metadata is retained to reserve their
+slots; IL players are not silently activated by the weekly optimizer. Missing
+active-player projections and actual roster fetch failures still stop scoring.
