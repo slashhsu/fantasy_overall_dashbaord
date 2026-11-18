@@ -25,6 +25,8 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.clearAllMocks(); })
 describe("injury advice source aggregation", () => {
   it("includes other managers' injured players and excludes already-owned candidates", async () => {
     const response = await getInjuryAdvice(options);
+    expect(getDashboard).toHaveBeenCalledWith(expect.objectContaining({ recommendationPurpose: "injury" }));
+    expect(response.diagnostics).toEqual({ players: 4, injured: 1, available: 1, ranked: 1 });
     expect(response.opportunities.map((item) => item.beneficiaryKey)).toEqual(["nba.p.2"]);
     expect(response.opportunities[0]).toMatchObject({ benefiting: true, score: 10, scoreType: "expected-categories" });
     expect(response.rosterKeys).toEqual(["nba.p.4"]);

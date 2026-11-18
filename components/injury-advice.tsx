@@ -88,6 +88,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
     {data?.warnings.map((warning) => <p key={warning} className="inline-notice warning">{warning}</p>)}
     {data && data.status !== "historical" ? <>
       {data.opportunities.length || data.watchlist.length ? <p className="injury-message">推薦分數<HelpTip topic={scoreHelp.topic} label="傷病推薦分數" /></p> : null}
+      {data.diagnostics ? <p className="injury-message">已檢查 {data.diagnostics.players} 名球員，其中 {data.diagnostics.injured} 名有傷病標記、{data.diagnostics.available} 名可取得；{data.diagnostics.ranked} 名進入獨立推薦評估。不受當天有無比賽或開賽鎖定影響。</p> : null}
       <h3 className="injury-section-title">精選補人<HelpTip topic="injuryMinutes" /></h3>
       <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
       {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補。資料不足不代表球員沒有補強價值；篩選原因：{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}

@@ -16,6 +16,7 @@ export interface InjuryOpportunity {
   relatedInjuries: InjuryBaseline[];
 }
 export interface InjuryResponse {
+  diagnostics?: { players: number; injured: number; available: number; ranked: number };
   leagueKey: string; teamKey: string; generatedAt: string; observationDate: string;
   status: "complete" | "partial" | "historical"; players: InjuryPlayer[];
   rosterKeys: string[]; opportunities: InjuryOpportunity[]; watchlist: InjuryOpportunity[]; exclusionCounts: Record<string, number>; warnings: string[];

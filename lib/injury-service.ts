@@ -16,7 +16,7 @@ export interface InjuryOptions { leagueKey: string; teamKey: string; week: numbe
 export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryResponse> {
   const { leagueKey, teamKey, week, date, timeZone, watchKeys, forceRefresh = false } = options;
   // getDashboard validates access to the league/team and reuses the dashboard's resources.
-  const dashboard = await withUpdateStatus(() => getDashboard({ leagueKey, week, targetDate: date, timeZone, teamKey, forceRefresh }));
+  const dashboard = await withUpdateStatus(() => getDashboard({ leagueKey, week, targetDate: date, timeZone, teamKey, forceRefresh, recommendationPurpose: "injury" }));
   if (dashboard.updateStatus) recordUpdate(dashboard.updateStatus);
   const observationDate = todayInTimeZone("America/Los_Angeles");
   const result: InjuryResponse = { leagueKey, teamKey, generatedAt: new Date().toISOString(), observationDate,
@@ -104,7 +104,10 @@ export async function getInjuryAdvice(options: InjuryOptions): Promise<InjuryRes
     }
   }
   const scores = new Map(dashboard.recommendations.map((player) => [player.playerKey, { score: player.score, scoreType: player.scoreType, helps: player.reason }]));
-  Object.assign(result, findInjuryOpportunities(result.players, new Set(pool.value.players.filter((player) => !metadata.value.players.some((taken) => taken.playerKey === player.playerKey) && !result.rosterKeys.includes(player.playerKey)).map((player) => player.playerKey)), scores, { points: dashboard.objective === "fantasy-points", limitedData: result.status !== "complete" }));
+  const available = new Set(pool.value.players.filter((player) => !metadata.value.players.some((taken) => taken.playerKey === player.playerKey) && !result.rosterKeys.includes(player.playerKey)).map((player) => player.playerKey));
+  result.diagnostics = { players: result.players.length, injured: result.players.filter((player) => player.statusKnown && ["out", "watch"].includes(injuryState(player.status))).length,
+    available: available.size, ranked: scores.size };
+  Object.assign(result, findInjuryOpportunities(result.players, available, scores, { points: dashboard.objective === "fantasy-points", limitedData: result.status !== "complete" }));
   if (result.status === "partial") result.warnings.push("部分來源不完整或使用備援資料；候選僅供觀察，不更新復出紀錄。");
   return result;
 }

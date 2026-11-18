@@ -83,3 +83,12 @@ it("clears prior team cards and ignores their late response after switching team
   await act(async () => { finish({ ok: true, json: async () => ({ ...snapshot(), exclusionCounts: { "舊隊伍資料": 1 } }) }); });
   expect(screen.queryByText(/舊隊伍資料/)).not.toBeInTheDocument();
 });
+
+
+it("explains the inspected pool when no injury candidate passes the thresholds", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ...snapshot(), diagnostics: { players: 400, injured: 25, available: 200, ranked: 50 }, exclusionCounts: { "替補時間或增幅未達門檻": 3 } }) })));
+  render(<InjuryAdvice {...props} />);
+  expect(await screen.findByText(/已檢查 400 名球員/)).toHaveTextContent("25 名有傷病標記、200 名可取得；50 名進入獨立推薦評估");
+  expect(screen.getByText(/已檢查 400 名球員/)).toHaveTextContent("不受當天有無比賽或開賽鎖定影響");
+  expect(screen.getByText(/替補時間或增幅未達門檻（3）/)).toBeInTheDocument();
+});
