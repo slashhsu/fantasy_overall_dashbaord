@@ -55,7 +55,8 @@ describe("weekly period and shared inputs", () => {
     expect(results[0].period.startDate).toBe("2029-12-31");
     expect(results[0].counts.get(demoFreeAgents[0].team)).toBe(1);
     expect(fetchRoster).toHaveBeenCalledTimes(1);
-    expect(fetchNbaSchedule).toHaveBeenCalledTimes(6);
+    expect(fetchNbaSchedule).toHaveBeenCalledTimes(8);
+    expect(results[0].weeklyTeamSchedule.startDate).toBe("2029-12-29");
   });
   it("labels partial schedules and unavailable rosters instead of creating false zero/usable totals", async () => {
     vi.useFakeTimers(); vi.setSystemTime(now);
@@ -65,10 +66,11 @@ describe("weekly period and shared inputs", () => {
     expect(result.period.status).toBe("partial"); expect(result.scheduleComplete).toBe(false); expect(result.lineupComplete).toBe(false);
     expect(result.period.missingScheduleDates).toEqual(["2030-01-02"]);
   });
-  it("does not fetch past weeks or dates beyond the week and excludes locked/postponed games", async () => {
+  it("loads full-week and streaming insights even when no remaining games exist, and excludes locked/postponed games", async () => {
     vi.useFakeTimers(); vi.setSystemTime(now);
+    vi.mocked(fetchNbaSchedule).mockResolvedValue({ teamsPlaying: [], schedule: { status: "available", source: "espn", fallbackUsed: false, games: [] } });
     const result = await loadRecommendationPeriod({ ...options, date: "2031-01-01" });
-    expect(result.period.status).toBe("complete"); expect(result.counts.size).toBe(0); expect(fetchNbaSchedule).not.toHaveBeenCalled();
+    expect(result.period.status).toBe("complete"); expect(result.counts.size).toBe(0); expect(result.weeklyTeamSchedule.status).toBe("complete"); expect(result.backToBackDates).toEqual(["2031-01-01", "2031-01-02"]);
     expect(upcomingGame({ ...game("2030-01-02"), status: "postponed" }, now)).toBe(false);
     expect(upcomingGame(game("2029-12-30"), now)).toBe(false);
     expect(upcomingGame({ ...game("2030-01-02"), startTime: null }, now)).toBe(false);
@@ -99,4 +101,19 @@ it("does not block a whole week for an IL player's absent stats, but still block
   vi.mocked(fetchRoster).mockResolvedValue({ available: false, players: [{ ...injured, selectedPosition: "Util", status: "" }] });
   const invalid = await loadRecommendationPeriod({ ...options, teamKey: "test.t.2" });
   expect(invalid.period.status).toBe("partial"); expect(invalid.lineupComplete).toBe(false);
+});
+
+
+it("keeps full-week totals separate from remaining totals and earlier schedule gaps", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(now);
+  vi.mocked(fetchNbaSchedule).mockImplementation(async (date) => ({ teamsPlaying: [], schedule: {
+    status: date === "2029-12-28" ? "unavailable" : "available", source: "espn", fallbackUsed: false,
+    games: date === "2029-12-29" ? [{ ...game(date), status: "final" }] : date === "2030-01-02" ? [game(date)] : [],
+  } }));
+  const result = await loadRecommendationPeriod({ league: demoLeagues[0], matchup: { ...match, startDate: "2029-12-29", endDate: "2030-01-03" }, date: "2030-01-01", timeZone: "UTC", teamKey: "test.t.1", ttl: 300, force: false, weekly: false, demo: false });
+  expect(result.weeklyTeamSchedule).toMatchObject({ startDate: "2029-12-29", endDate: "2030-01-03", status: "partial" });
+  expect(result.weeklyTeamSchedule.groups[0].games).toBe(2);
+  expect(result.counts.get(demoFreeAgents[0].team)).toBe(1);
+  expect(result.scheduleComplete).toBe(true);
+  expect(result.period.status).toBe("complete");
 });

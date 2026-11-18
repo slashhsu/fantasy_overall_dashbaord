@@ -1,4 +1,5 @@
 import "server-only";
+import { consecutiveGamesForTeam } from "@/lib/schedule-insights";
 
 import { loadRecommendationPeriod } from "@/lib/recommendation-period";
 import { normalizeTeamAbbreviation } from "@/lib/stats";
@@ -229,6 +230,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   const recommendations = (weekly
     ? remaining.period.status === "complete" ? recommendRemainingWeek(base.freeAgents, categoryNeeds, recommendationOptions, remaining.days) : []
     : recommendFreeAgents(base.freeAgents, categoryNeeds, recommendationOptions)).map((row) => ({ ...row,
+      consecutiveGames: consecutiveGamesForTeam(row.team, remaining.backToBackDates, remaining.backToBackRange),
       remainingGames: remaining.period.status === "unavailable" ? null : remaining.counts.get(normalizeTeamAbbreviation(row.team)) ?? 0,
       remainingGamesComplete: remaining.scheduleComplete !== false,
     }));
@@ -236,6 +238,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   return {
     recommendationHorizon: options.recommendationHorizon ?? "daily",
     recommendationPeriod: remaining.period,
+    weeklyTeamSchedule: remaining.weeklyTeamSchedule,
     generatedAt: new Date().toISOString(),
     cached: cached && leagueResult.cached,
     demoMode,

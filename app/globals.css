@@ -676,3 +676,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .public-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; padding: 32px 0; color: #b1a69c; font-size: 12px; }
 .login-home-link { display: inline-block; margin-top: 22px; color: #92512a; font-size: 13px; text-underline-offset: 4px; }
 @media (max-width: 640px) { .public-header { padding: 20px 16px; gap: 12px; } .public-brand { font-size: 12px; gap: 7px; } .public-login { font-size: 12px; } .public-login svg { display: none; } .public-hero { grid-template-columns: 1fr; padding: 36px 0 40px; gap: 18px; } .public-ball.arena-emblem { display: none; } .public-feature-grid { grid-template-columns: 1fr; } .public-feature-grid article, .public-privacy { padding: 22px; } .public-lead { font-size: 15px; } }
+
+.weekly-team-schedule { display: block; }
+.consecutive-games { display: block; margin-top: 0.35rem; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }

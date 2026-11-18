@@ -1,0 +1,38 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { DashboardApp } from "@/components/dashboard-app";
+import { getDashboard } from "@/lib/dashboard-service";
+import { demoLeagues } from "@/lib/demo-data";
+import { fetchNbaSchedule } from "@/lib/nba-schedule";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }), usePathname: () => "/" }));
+vi.mock("@/components/injury-advice", () => ({ InjuryAdvice: () => null }));
+vi.mock("@/lib/nba-schedule", () => ({ fetchNbaSchedule: vi.fn() }));
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+it.each(["daily", "remaining-week"] as const)("shows the weekly summary and consecutive dates in %s mode, including an empty board", async (horizon) => {
+  vi.stubEnv("YAHOO_DEMO_MODE", "true");
+  vi.mocked(fetchNbaSchedule).mockResolvedValue({ teamsPlaying: [], schedule: { status: "available", source: "espn", fallbackUsed: false, games: [] } });
+  const dashboard = await getDashboard({ leagueKey: demoLeagues[0].leagueKey, week: 19, targetDate: "2025-02-24", timeZone: "UTC" });
+  expect(dashboard.recommendations.length).toBeGreaterThan(0);
+  dashboard.recommendationHorizon = horizon;
+  dashboard.recommendations = [{ ...dashboard.recommendations[0], consecutiveGames: { dates: ["2025-02-24", "2025-02-25"], status: "yes" } }];
+  dashboard.weeklyTeamSchedule = { startDate: "2025-02-24", endDate: "2025-03-02", timeZone: "UTC", status: "complete", missingScheduleDates: [], groups: [{ games: 5, teams: ["GSW", "POR"] }] };
+  vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+    const url = new URL(String(input), "http://localhost");
+    return { ok: true, json: async () => url.pathname === "/api/leagues" ? { leagues: demoLeagues } : { ...dashboard, targetDate: url.searchParams.get("date"), timeZone: url.searchParams.get("timeZone"), recommendationHorizon: url.searchParams.get("recommendationHorizon") } };
+  }));
+  render(<DashboardApp />);
+  if (horizon === "remaining-week") fireEvent.change(screen.getByRole("combobox", { name: "推薦期間" }), { target: { value: horizon } });
+  expect(await screen.findByText("本週 NBA 球隊場次")).toBeInTheDocument();
+  expect(screen.getByText("5 場：").parentElement).toHaveTextContent("GSW / POR");
+  expect(screen.getByText(/^連兩天：是/)).toHaveTextContent("2025-02-24 / 2025-02-25");
+  cleanup();
+  dashboard.recommendations = [];
+  dashboard.weeklyTeamSchedule.status = "partial";
+  render(<DashboardApp />);
+  if (horizon === "remaining-week") fireEvent.change(screen.getByRole("combobox", { name: "推薦期間" }), { target: { value: horizon } });
+  expect(await screen.findByText("本週 NBA 球隊場次")).toBeInTheDocument();
+  expect(screen.getByText("至少 5 場：")).toBeInTheDocument();
+  expect(screen.getByText(/部分賽程未知，以下為已確認至少場次/)).toBeInTheDocument();
+  expect(screen.queryByText(/^連兩天：是/)).not.toBeInTheDocument();
+});

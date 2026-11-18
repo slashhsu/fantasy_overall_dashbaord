@@ -251,6 +251,7 @@ export interface RecommendationLineupImpact {
 }
 
 export interface Recommendation {
+  consecutiveGames?: ConsecutiveGames;
   playerKey: string;
   name: string;
   position: string;
@@ -361,7 +362,22 @@ export interface RecommendationPeriod {
   message?: string;
 }
 
+export interface ConsecutiveGames {
+  dates: [string, string];
+  status: "yes" | "no" | "unknown";
+}
+
+export interface WeeklyTeamSchedule {
+  startDate: string | null;
+  endDate: string | null;
+  timeZone: string;
+  status: "complete" | "partial" | "unavailable";
+  missingScheduleDates: string[];
+  groups: Array<{ games: number; teams: string[] }>;
+}
+
 export interface DashboardResponse {
+  weeklyTeamSchedule?: WeeklyTeamSchedule;
   recommendationHorizon?: "daily" | "remaining-week";
   recommendationPeriod?: RecommendationPeriod;
   updateStatus?: UpdateStatus;

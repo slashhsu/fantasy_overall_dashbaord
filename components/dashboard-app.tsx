@@ -532,6 +532,14 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
           <details className="info-popover"><summary className={!scheduleAvailable ? "schedule-status is-unavailable" : gameDay ? "schedule-status is-live" : "schedule-status"}><CalendarDays size={15} /><span>{scheduleLabel}</span></summary><div>{dashboard.schedule.message ?? `Source: ${dashboard.schedule.source ?? "none"}`}</div></details>
         </div>
       </div>
+      {dashboard.weeklyTeamSchedule ? <div className="inline-notice weekly-team-schedule">
+        <strong>本週 NBA 球隊場次</strong>
+        <div>{dashboard.weeklyTeamSchedule.startDate ?? "未知"} 至 {dashboard.weeklyTeamSchedule.endDate ?? "未知"} · {dashboard.weeklyTeamSchedule.timeZone}</div>
+        {dashboard.weeklyTeamSchedule.status === "unavailable" ? <div>無法取得完整週次或賽程</div> : <>
+          {dashboard.weeklyTeamSchedule.status === "partial" ? <div>部分賽程未知，以下為已確認至少場次；未列出的球隊場次未知。</div> : null}
+          {dashboard.weeklyTeamSchedule.groups.map((group) => <div key={group.games}><strong>{dashboard.weeklyTeamSchedule!.status === "partial" ? "至少 " : ""}{group.games} 場：</strong>{group.teams.join(" / ")}</div>)}
+        </>}
+      </div> : null}
       <p className="inline-notice">下方 PTS／REB 等統計為單場預估，非當週實績。NBA 剩餘場次不保證球員實際出賽。</p>
       {dashboard.recommendationPeriod ? <p className="inline-notice">計算區間：{dashboard.recommendationPeriod.startDate ?? "未知"} 至 {dashboard.recommendationPeriod.endDate ?? "未知"} · {dashboard.recommendationPeriod.timeZone}。{dashboard.recommendationPeriod.message}{dashboard.recommendationHorizon === "remaining-week" ? " 整週分數採每日陣容淨貢獻重新評分，屬未經整週回測的規則推估。" : ""}</p> : null}
       {dashboard.dataQuality.status !== "complete" || dashboard.dataQuality.stale ? (
@@ -576,7 +584,9 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
                     </div>
                   </td>
                   <td><span className="team-code">{player.team}</span></td>
-                  <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}</td>
+                  <td>{!scheduleAvailable ? <span className="muted-chip">Unknown</span> : player.gameToday ? <span className="game-chip"><span /> Plays</span> : <span className="muted-chip">Off</span>}
+                    {player.consecutiveGames ? <small className="consecutive-games" title="依球隊賽程判斷，不保證球員實際出賽">連兩天：{{ yes: "是", no: "否", unknown: "未知" }[player.consecutiveGames.status]}<br />{player.consecutiveGames.dates.join(" / ")}</small> : null}
+                  </td>
                   <td>{player.remainingGames == null ? "—" : `${player.remainingGamesComplete === false ? "已確認至少 " : ""}${player.remainingGames}`}</td>
                   {dashboard.recommendationHorizon === "remaining-week" ? <td>{player.usableGames ?? "—"}</td> : null}
                   <td><span className={player.score >= 0 ? "score-positive" : "score-negative"}>{player.score >= 0 ? "+" : ""}{player.score.toFixed(3)}</span>{scoreHelp.mixed ? <HelpTip topic={scoreTopic(player.scoreType)} label={`${player.name} 分數單位`} /> : null}</td>
