@@ -33,8 +33,6 @@ export const getLeagueSummaries = async (forceRefresh = false) => {
 };
 
 interface DashboardOptions {
-  /** Server-only: injury opportunities are independent of today's slate and lineup locks. */
-  recommendationPurpose?: "injury";
   leagueKey: string;
   week: number;
   targetDate: string;
@@ -85,7 +83,6 @@ const rotoMatchup = (league: LeagueSummary, week: number, teams: LeagueTeamStats
 
 export const getDashboard = async (options: DashboardOptions): Promise<DashboardResponse> => {
   const demoMode = isDemoMode();
-  const injuryAdvice = options.recommendationPurpose === "injury";
   const leagueResult = await getLeagueSummaries(Boolean(options.forceRefresh));
   const league = leagueResult.leagues.find((item) => item.leagueKey === options.leagueKey);
   if (!league) throw new ValidationError("The selected league is not available for this Yahoo account.");
@@ -139,7 +136,7 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
         () => fetchFreeAgentPool(league.leagueKey),
         forceRefresh,
       ),
-      injuryAdvice ? Promise.resolve({ value: { teamsPlaying: [], schedule: { status: "unverified" as const, source: null, fallbackUsed: false, games: [] } }, cached: true, stale: false }) : withCache(
+      withCache(
         `nba-schedule:${options.targetDate}:${options.timeZone}`,
         cacheTtlSeconds,
         () => fetchNbaSchedule(options.targetDate),
@@ -214,11 +211,11 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
   }
   const recommendationOptions = {
     teamsPlaying: base.teamsPlaying,
-    strictGameDay: !injuryAdvice && base.schedule.status === "available",
+    strictGameDay: base.schedule.status === "available",
     targetDate: options.targetDate,
     roster: roster.players,
     rosterPositions: base.configuration.rosterPositions,
-    lineupAvailable: !injuryAdvice && roster.available,
+    lineupAvailable: roster.available,
     scoringFormat: base.configuration.scoringFormat,
     scheduleGames: base.schedule.games,
     categories: base.configuration.categories,
@@ -226,22 +223,22 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
     selectedTeamKey: selectedTeam.teamKey,
     topN: 50,
   };
-  const weekly = !injuryAdvice && options.recommendationHorizon === "remaining-week";
-  const remaining = injuryAdvice ? null : await loadRecommendationPeriod({ league, matchup: selectedMatchup, date: options.targetDate, timeZone: options.timeZone, teamKey: selectedTeam.teamKey, ttl: cacheTtlSeconds, force: Boolean(options.forceRefresh), weekly, demo: demoMode });
-  if (weekly && remaining && remaining.days.length && !base.configuration.rosterPositions.length) { remaining.period.status = "partial"; remaining.period.message = "Yahoo 未提供陣容位置設定，無法計算整週可排入場次；請切回當日模式。"; }
-  if (weekly && remaining && base.configuration.scoringFormat === "rotisserie" && base.standings.length < 2) { remaining.period.status = "partial"; remaining.period.message = "聯盟排名數據不足，無法可靠計算整週 Roto 價值；請稍後重試。"; }
-  const recommendations = (weekly && remaining
+  const weekly = options.recommendationHorizon === "remaining-week";
+  const remaining = await loadRecommendationPeriod({ league, matchup: selectedMatchup, date: options.targetDate, timeZone: options.timeZone, teamKey: selectedTeam.teamKey, ttl: cacheTtlSeconds, force: Boolean(options.forceRefresh), weekly, demo: demoMode });
+  if (weekly && remaining.days.length && !base.configuration.rosterPositions.length) { remaining.period.status = "partial"; remaining.period.message = "Yahoo 未提供陣容位置設定，無法計算整週可排入場次；請切回當日模式。"; }
+  if (weekly && base.configuration.scoringFormat === "rotisserie" && base.standings.length < 2) { remaining.period.status = "partial"; remaining.period.message = "聯盟排名數據不足，無法可靠計算整週 Roto 價值；請稍後重試。"; }
+  const recommendations = (weekly
     ? remaining.period.status === "complete" ? recommendRemainingWeek(base.freeAgents, categoryNeeds, recommendationOptions, remaining.days) : []
-    : recommendFreeAgents(base.freeAgents, categoryNeeds, recommendationOptions)).map((row) => remaining ? ({ ...row,
+    : recommendFreeAgents(base.freeAgents, categoryNeeds, recommendationOptions)).map((row) => ({ ...row,
       consecutiveGames: consecutiveGamesForTeam(row.team, remaining.backToBackDates, remaining.backToBackRange),
       remainingGames: remaining.period.status === "unavailable" ? null : remaining.counts.get(normalizeTeamAbbreviation(row.team)) ?? 0,
       remainingGamesComplete: remaining.scheduleComplete !== false,
-    }) : row);
+    }));
 
   return {
     recommendationHorizon: options.recommendationHorizon ?? "daily",
-    recommendationPeriod: remaining?.period,
-    weeklyTeamSchedule: remaining?.weeklyTeamSchedule,
+    recommendationPeriod: remaining.period,
+    weeklyTeamSchedule: remaining.weeklyTeamSchedule,
     generatedAt: new Date().toISOString(),
     cached: cached && leagueResult.cached,
     demoMode,
@@ -270,8 +267,8 @@ export const getDashboard = async (options: DashboardOptions): Promise<Dashboard
       teams: base.standings,
       message: base.standings.length ? undefined : "League standings were unavailable.",
     },
-    lineupAvailable: weekly && remaining ? remaining.period.status === "complete" : !injuryAdvice && roster.available,
-    lineupMessage: weekly && remaining ? remaining.period.message : roster.message,
+    lineupAvailable: weekly ? remaining.period.status === "complete" : roster.available,
+    lineupMessage: weekly ? remaining.period.message : roster.message,
     teamsPlaying: base.teamsPlaying,
     freeAgentCount: base.freeAgents.length,
     recommendations,

@@ -98,7 +98,7 @@ The notebooks, Python reference implementation, OAuth files, tests, and caches a
 | `YAHOO_REDIRECT_URI` | Live mode | Exact redirect URI associated with the token. |
 | `BALLDONTLIE_API_KEY` | Recommended | Free API key for the primary NBA Games schedule source. |
 | `CACHE_TTL_SECONDS` | No | In-memory response lifetime; default `300`. |
-| `FREE_AGENT_LIMIT` | No | Maximum paginated available players; default `300`. |
+| `FREE_AGENT_LIMIT` | No | Recommendation/draft pool limit; default `300`. Injury scans read all player pages independently. |
 | `YAHOO_DEMO_MODE` | No | Use deterministic preview data; default `false`. |
 
 Login throttling is process-local: five failed attempts in 15 minutes lock that client for 15 minutes, with exponential failure delays up to two seconds. Vercel instances do not share this state because the app intentionally has no Redis/KV dependency.
@@ -213,18 +213,26 @@ Recommendations now includes **傷病機會與復出提醒**, loaded only when i
 enters the viewport. The authenticated read-only `/api/injury-advice` endpoint
 accepts `leagueKey`, `teamKey`, `week`, `date`, `timeZone`, optional `watch` (up to
 50 player keys), and optional `forceRefresh=true`. It validates league/team access
-through the existing dashboard service. Historical/future dates or non-current
-weeks do not receive today's injury advice.
+directly against league discovery and league team membership, without loading the
+Dashboard or its recommendations. Historical/future dates or non-current weeks
+do not receive today's injury advice.
 
-The service reuses free-agent pools, roster windows and recommendation scores.
-Taken-player metadata is paged for the current league (up to 1,000 players, with
-incomplete coverage explicitly flagged), so injuries on other managers' rosters
-are included. Stat windows are fetched only for injured/questionable or observed
-players; dated appearance checks cover the last seven days for watched players
-whose status cleared. All calls use the existing shared cache, 60-second forced
-refresh cooldown and two-slot Yahoo gate. Stats producers are sequential rather
-than creating a large queue. New injury requests do not block the recommendation
-response, although they still share the instance's Yahoo request budget.
+The service pages all current-season league player metadata, ownership and Yahoo
+`percent_owned` until the collection ends; it does not use `FREE_AGENT_LIMIT`.
+Free agents and waiver players are both eligible. Stats are loaded only for
+injured/questionable players, their position-matched available teammates and
+previously watched players. Dated return checks cover the last seven days.
+Each request loads at most six source batches (with an 18-second scheduling
+budget), using shared batch caches and the existing two-slot Yahoo gate.
+
+Incomplete responses include `scan` progress and a signed, compressed continuation
+cursor. The client automatically POSTs `{ cursor }` to the same URL until done;
+source errors pause continuation with an explicit retry button. Continuations
+carry the accumulated snapshot and survive server cold starts. Tokens expire
+after ten minutes and are bound to league, game, team, observation date and watched
+players; POST payloads and decompressed snapshots are size-bounded. Auth and league
+access checks run on every request. The cursor never contains OAuth credentials.
+Partial scans never claim complete market coverage or create return history.
 
 Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
 - Important injured players require at least 5 games and 28 MPG in the last month.
@@ -232,9 +240,8 @@ Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
   is higher. Only insufficient/invalid monthly evidence falls back to a season
   sample of at least 5 games. Neither window proves pre-injury medical health.
 - Featured substitutes must be available, have a known clear status, share the
-  injured player's NBA team and an explicit position, and appear in the first 50
-  existing matchup recommendations. Category formats also require a category
-  contribution reason; points formats do not. Original scoring is unchanged.
+  injured player's NBA team and an explicit position. Recommendation rank, score,
+  category contribution and today's schedule do not affect eligibility.
 - `O`, `OUT`, `INJ`, `IL`, `IL+` qualify as absence. Featured beneficiaries need
   at least 3 last-week games, 24 MPG and a gain of at least 5 MPG over a last-month
   sample of at least 5 games. Exact boundaries qualify.
@@ -245,10 +252,15 @@ Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
 - Partial/stale sources demote otherwise eligible candidates to watching. The API
   keeps `opportunities` for featured results and adds `watchlist`, `exclusionCounts`,
   month/season GP, grouping reasons and related injury baseline evidence.
-- Each section sorts by existing score, minute gain, then stable player keys;
-  at most 2 substitutes per injured player and 5 unique substitutes per section.
-  Shared substitutes merge related injured players. Featured players are omitted
-  from the watchlist. Empty results show exclusion reasons instead of filler.
+- All qualifying substitutes remain visible, paginated 20 at a time. Sort by Yahoo
+  ownership percentage, minute gain, recent MPG, then name; unknown percentages
+  sort below known zero. Shared substitutes merge related injured players and
+  featured players are omitted from the watchlist. No recommendation, per-star or
+  section cap applies. Empty results show exclusion reasons instead of filler.
+- The separate **全體傷病名單** lists every known O/OUT/INJ/IL/IL+ player,
+  including owned players, without minute/sample thresholds. Q/GTD/DTD/D are not
+  included. Sort by ownership percentage then name, 20 per page. Global Yahoo
+  ownership percentage is distinct from availability in the selected league.
 - Clearing an injury flag yields only a possible-return message. Confirmed return
   requires positive dated GP after the last injury observation date; same-day
   appearances are inconclusive. A four-minute drop from the substitute's observed
@@ -258,7 +270,7 @@ Rules are heuristic and not backtested. Thresholds live in `INJURY_RULES`:
 Browser storage is scoped by league and selected fantasy team under
 `fantasy-injury:v2:<leagueKey>:<teamKey>`. On access, the old v1 key is removed;
 old-version observations are rejected to avoid carrying forward loose pairings.
-Injury/substitute pairs are capped at 50 and retained for 30 days, alongside at
+Injury/substitute pairs are capped at 50 (held substitutes first, then freshness and ownership) and retained for 30 days, alongside at
 most 50 healthy-status minute observations (not used to override server eligibility).
 Only complete, fresh (within 10 minutes), non-stale snapshots update observations
 or produce return alerts. Only featured candidates establish new pairs, including
@@ -426,3 +438,15 @@ players off that day or already-locked starters do not invalidate all weekly
 recommendations. Locked starters' roster metadata is retained to reserve their
 slots; IL players are not silently activated by the weekly optimizer. Missing
 active-player projections and actual roster fetch failures still stop scoring.
+
+
+### Full-week schedule and calendar-day back-to-backs
+
+Both recommendation modes show full matchup-week team fixture totals, including
+completed/in-progress games and excluding postponements. A daily consecutive-game
+list uses each calendar date plus its next date in the selected timezone, including
+Sunday into next Monday. Extra next-week games are used only for the pair and do
+not increase the selected week's total. No-game pairs show `無` only when coverage
+is complete; incomplete pairs retain confirmed teams and an explicit warning.
+Calendar-day rows do not apply the league-specific pickup offset used on individual
+player recommendations. Unknown provider statuses and duplicate tipoffs are excluded.

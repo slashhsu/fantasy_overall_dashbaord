@@ -538,6 +538,12 @@ function RecommendationsView({ dashboard, recommendations, sortKey, sortDirectio
         {dashboard.weeklyTeamSchedule.status === "unavailable" ? <div>無法取得完整週次或賽程</div> : <>
           {dashboard.weeklyTeamSchedule.status === "partial" ? <div>部分賽程未知，以下為已確認至少場次；未列出的球隊場次未知。</div> : null}
           {dashboard.weeklyTeamSchedule.groups.map((group) => <div key={group.games}><strong>{dashboard.weeklyTeamSchedule!.status === "partial" ? "至少 " : ""}{group.games} 場：</strong>{group.teams.join(" / ")}</div>)}
+          {dashboard.weeklyTeamSchedule.dailyConsecutive?.length ? <div className="daily-consecutive-schedule"><strong>每日連續兩場</strong>
+            {dashboard.weeklyTeamSchedule.dailyConsecutive.map((day) => <div key={day.date}>
+              <strong>{["週日", "週一", "週二", "週三", "週四", "週五", "週六"][new Date(`${day.date}T12:00:00Z`).getUTCDay()]}（{day.date.slice(5).replace("-", "/")}–{day.nextDate.slice(5).replace("-", "/")}）：</strong>
+              {day.teams.length ? day.teams.join(" / ") : day.complete ? "無" : "未知"}{!day.complete ? "（賽程不完整，僅列已確認隊伍）" : ""}
+            </div>)}
+          </div> : null}
         </>}
       </div> : null}
       <p className="inline-notice">下方 PTS／REB 等統計為單場預估，非當週實績。NBA 剩餘場次不保證球員實際出賽。</p>

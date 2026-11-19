@@ -1,7 +1,6 @@
 "use client";
-import { scoreHelpFor, scoreTopic } from "@/lib/help-content";
 import { HelpTip } from "@/components/help-tip";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PlayerAvatar } from "@/components/player-avatar";
 import { RefreshControl, UpdateNotice } from "@/components/refresh-control";
 import { applyInjurySnapshot, emptyInjuryHistory, sanitizeInjuryHistory } from "@/lib/injury-model";
@@ -26,7 +25,7 @@ export function InjuryAdvice(props: Props) {
     return () => { active = false; observer.disconnect(); };
   }, []);
   return <section ref={element} className="injury-advice" aria-label="傷病機會與復出提醒">
-    <div className="panel-heading"><div><p className="eyebrow">Injury & rotation watch</p><h2>傷病機會與復出提醒<HelpTip topic="injury" /></h2><p>以 Yahoo 狀態與上場時間推估短期機會，請自行決定是否調整陣容。</p></div></div>
+    <div className="panel-heading"><div><p className="eyebrow">Injury & rotation watch</p><h2>傷病機會與復出提醒<HelpTip topic="injury" /></h2><p>持續追蹤 Yahoo 傷病與輪替時間，從所有可取得球員尋找受益者，依擁有率排序。</p></div></div>
     {visible ? <AdviceBody key={`${props.leagueKey}:${props.teamKey}:${props.week}:${props.date}:${props.timeZone}`} {...props} /> : <p className="injury-message">進入此區後載入傷病建議。</p>}
   </section>;
 }
@@ -40,6 +39,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
   const loading = requestKey !== settled;
   const history = useRef(emptyInjuryHistory());
   const previousRefresh = useRef(refreshVersion);
+  const continuation = useRef<string | undefined>(undefined);
   const key = injuryStorageKey(leagueKey, teamKey);
   useEffect(() => {
     const controller = new AbortController();
@@ -49,20 +49,34 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
     const params = new URLSearchParams({ leagueKey, teamKey, week: String(week), date, timeZone });
     if (watch.length) params.set("watch", watch.join(","));
     if (previousRefresh.current !== refreshVersion || retry > 0) params.set("forceRefresh", "true");
-    previousRefresh.current = refreshVersion;
-    fetch(`/api/injury-advice?${params}`, { signal: controller.signal }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "傷病資料暫時無法取得。");
-      if (data.leagueKey !== leagueKey || data.teamKey !== teamKey) throw new Error("傷病資料不屬於目前隊伍，請重試。");
-      return data as InjuryResponse;
-    }).then((data) => {
-      if (controller.signal.aborted) return;
+    const updateView = (data: InjuryResponse) => {
       const updated = applyInjurySnapshot(readHistory(key, history.current), data);
       history.current = updated.history;
       try { localStorage.removeItem(key.replace("fantasy-injury:v2:", "fantasy-injury:v1:")); localStorage.setItem(key, JSON.stringify(updated.history)); setStorageFailed(false); }
       catch { setStorageFailed(true); }
       setView({ data, ...updated }); setError("");
-    }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "傷病資料暫時無法取得。"); })
+    };
+    async function load() {
+      // A manual continuation retries a blocked batch; refreshVersion starts a fresh scan.
+      let cursor = previousRefresh.current === refreshVersion && retry > 0 ? continuation.current : undefined;
+      previousRefresh.current = refreshVersion;
+      for (;;) {
+        const response = await fetch(`/api/injury-advice?${params}`, { signal: controller.signal,
+          ...(cursor ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cursor }) } : {}) });
+        const data = await response.json();
+        if (!response.ok) {
+          if (response.status === 400) continuation.current = undefined;
+          throw new Error(data.error || "傷病資料暫時無法取得。");
+        }
+        if (data.leagueKey !== leagueKey || data.teamKey !== teamKey) throw new Error("傷病資料不屬於目前隊伍，請重試。");
+        if (controller.signal.aborted) return;
+        updateView(data as InjuryResponse);
+        continuation.current = data.scan?.cursor;
+        if (!data.scan?.cursor || data.scan.blocked) break;
+        cursor = data.scan.cursor;
+      }
+    }
+    load().catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "傷病資料暫時無法取得。"); })
       .finally(() => { if (!controller.signal.aborted) setSettled(`${refreshVersion}:${retry}`); });
     return () => controller.abort();
   }, [leagueKey, teamKey, week, date, timeZone, refreshVersion, retry, key]);
@@ -76,7 +90,6 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
   };
   const data = view?.data;
   const players = new Map(data?.players.map((player) => [player.playerKey, player]));
-  const scoreHelp = scoreHelpFor([...(data?.opportunities ?? []), ...(data?.watchlist ?? [])]);
   const minutes = (value: number | null) => value === null ? "資料不足" : `${value.toFixed(1)} 分鐘`;
   return <div className="injury-body" aria-busy={loading}>
     <div className="injury-toolbar"><p className="injury-message">{data?.demoMode ? "Demo 示範資料 · " : ""}僅提供本站提醒；更換裝置或清除瀏覽器資料後，可能無法辨識先前傷病。觀察紀錄保留 30 天。</p>
@@ -87,17 +100,25 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
     <UpdateNotice status={data?.updateStatus} />
     {data?.warnings.map((warning) => <p key={warning} className="inline-notice warning">{warning}</p>)}
     {data && data.status !== "historical" ? <>
-      {data.opportunities.length || data.watchlist.length ? <p className="injury-message">推薦分數<HelpTip topic={scoreHelp.topic} label="傷病推薦分數" /></p> : null}
-      {data.diagnostics ? <p className="injury-message">已檢查 {data.diagnostics.players} 名球員，其中 {data.diagnostics.injured} 名有傷病標記、{data.diagnostics.available} 名可取得；{data.diagnostics.ranked} 名進入獨立推薦評估。不受當天有無比賽或開賽鎖定影響。</p> : null}
+      {data.diagnostics ? <p className="injury-message">已檢查 {data.diagnostics.players} 名球員，其中 {data.diagnostics.injured} 名有傷病標記、{data.diagnostics.available} 名可取得。不受串流名單、推薦分數、當天賽程或開賽鎖定影響。</p> : null}
       <h3 className="injury-section-title">精選補人<HelpTip topic="injuryMinutes" /></h3>
-      <div className="injury-card-grid">{data.opportunities.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
+      <InjuryPages label="精選補人" items={data.opportunities} renderItem={(item) => <OpportunityCard key={item.id} item={item} players={players} />} />
       {!data.opportunities.length ? <p className="injury-message">目前沒有符合嚴格門檻的精選替補。資料不足不代表球員沒有補強價值；篩選原因：{Object.entries(data.exclusionCounts).map(([reason, count]) => `${reason}（${count}）；`).join("")}</p> : null}
       <details className="injury-watchlist">
         <summary>觀察名單（{data.watchlist.length}）</summary>
         <p className="injury-message">傷病待確認、正向增幅樣本不足或來源受限，暫不列為精選；觀察名單不建立新的復出追蹤。</p>
-        <div className="injury-card-grid">{data.watchlist.map((item) => <OpportunityCard key={item.id} item={item} players={players} mixedScores={scoreHelp.mixed} />)}</div>
+        <InjuryPages label="觀察名單" items={data.watchlist} renderItem={(item) => <OpportunityCard key={item.id} item={item} players={players} />} />
         {!data.watchlist.length ? <p className="injury-message">目前沒有符合條件的觀察候選。</p> : null}
       </details>
+      <h3 className="injury-section-title">全體傷病名單</h3>
+      <p className="injury-message">全體本季球員中的確定缺陣者，包含已被持有者；不含 Q／GTD／DTD／D。擁有率為 Yahoo 跨聯盟比例。</p>
+      {data.scan && !data.scan.complete ? <p role="status" className="injury-message">掃描尚未完成：已讀取 {data.scan.playersScanned} 人，統計 {data.scan.statsProcessed}／{data.scan.statsTotal} 人。{data.scan.blocked || error ? <button type="button" className="row-action" disabled={loading} onClick={() => setRetry((value) => value + 1)}>繼續載入傷病資料</button> : "正在續載…"}</p> : null}
+      <InjuryPages label="全體傷病名單" items={data.injuredPlayers ?? []} renderItem={(player) => <article key={player.playerKey} className="injury-card">
+        <div className="player-cell"><PlayerAvatar name={player.name} headshotUrl={player.headshotUrl} /><span><strong>{player.name}</strong><small>{player.team} · {player.position}</small></span></div>
+        <p className="injury-evidence">傷病標記：{player.status} · 擁有率：{ownershipLabel(player.percentOwned)}</p>
+        <p className="injury-evidence">所選聯盟：{availabilityLabel(player.availability)}</p>
+      </article>} />
+      {!data.injuredPlayers?.length ? <p className="injury-message">{data.scan && !data.scan.complete ? "掃描尚未完成，目前尚無已確認的缺陣球員。" : "目前沒有確定缺陣球員。"}</p> : null}
       <h3 className="injury-section-title">考慮釋出／重新評估<HelpTip topic="returns" /></h3>
       {!loading && !error ? <div className="injury-card-grid">{view?.alerts.map((alert) => <article key={alert.id} className="injury-card injury-return-card">
         <p className="eyebrow">{alert.confirmed ? "已恢復出賽" : "傷病標記解除，可能復出（待確認）"}</p>
@@ -114,7 +135,7 @@ function AdviceBody({ leagueKey, teamKey, week, date, timeZone, refreshVersion }
   </div>;
 }
 
-function OpportunityCard({ item, players, mixedScores }: { mixedScores: boolean; item: InjuryOpportunity; players: Map<string, InjuryResponse["players"][number]> }) {
+function OpportunityCard({ item, players }: { item: InjuryOpportunity; players: Map<string, InjuryResponse["players"][number]> }) {
   const backup = players.get(item.beneficiaryKey);
   if (!backup) return null;
   const reasons = {
@@ -130,7 +151,24 @@ function OpportunityCard({ item, players, mixedScores }: { mixedScores: boolean;
     <p className="injury-evidence">{reasons[item.reason]}</p>
     {item.relatedInjuries.map((entry) => <p key={entry.playerKey} className="injury-evidence">傷員基準：{players.get(entry.playerKey)?.name} · {entry.period === "lastmonth" ? "近 30 天" : "賽季"} {entry.games} 場、{entry.minutes.toFixed(1)} 分鐘／場（平均時間代理，非已確認傷前健康期）。</p>)}
     <p className="injury-evidence">近 7 天：{backup.weekMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.weekGames ?? "—"} 場）；近 30 天：{backup.monthMinutes?.toFixed(1) ?? "—"} 分鐘／場（{backup.monthGames ?? "—"} 場）；變化 +{item.minutesDelta.toFixed(1)} 分鐘。</p>
-    <div className="tag-list"><span className="watch-tag">可信程度：{item.group === "featured" ? "中・規則推估" : "低"}</span>{item.helps.map((help) => <span key={help} className="help-tag">{help}</span>)}</div>
-    <p className="injury-evidence">目前推薦分數 {item.score.toFixed(2)}；沿用所選聯盟與隊伍的推薦需求排序。{mixedScores ? <HelpTip topic={scoreTopic(item.scoreType ?? "")} label={`${backup.name} 傷病分數單位`} /> : null}</p>
+    <div className="tag-list"><span className="watch-tag">可信程度：{item.group === "featured" ? "中・規則推估" : "低"}</span></div>
+    <p className="injury-evidence">擁有率：{ownershipLabel(backup.percentOwned)} · {availabilityLabel(backup.availability)}</p>
   </article>;
+}
+
+
+const ownershipLabel = (value: number | null | undefined) => value == null ? "未知" : `${value.toFixed(1)}%`;
+const availabilityLabel = (value: InjuryResponse["players"][number]["availability"]) => ({ "free-agent": "自由球員，可取得", waivers: "Waiver，待撿取", owned: "已被持有", unknown: "持有狀態未知" }[value ?? "unknown"]);
+function InjuryPages<T>({ items, label, renderItem }: { items: T[]; label: string; renderItem: (item: T) => ReactNode }) {
+  const [requestedPage, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(items.length / 20));
+  const page = Math.min(requestedPage, pages - 1);
+  return <>
+    <div className="injury-card-grid">{items.slice(page * 20, (page + 1) * 20).map(renderItem)}</div>
+    {items.length > 20 ? <nav className="injury-pagination" aria-label={`${label}分頁`}>
+      <button type="button" className="row-action" disabled={page === 0} onClick={() => setPage(page - 1)}>上一頁</button>
+      <span>第 {page + 1}／{pages} 頁 · 共 {items.length} 人</span>
+      <button type="button" className="row-action" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)}>下一頁</button>
+    </nav> : null}
+  </>;
 }

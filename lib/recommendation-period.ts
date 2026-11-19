@@ -1,7 +1,7 @@
 import "server-only";
 import { normalizeTeamAbbreviation } from "@/lib/stats";
 import { withCache } from "@/lib/cache";
-import { createScheduleRangeLoader, consecutiveDates, summarizeWeek } from "@/lib/schedule-insights";
+import { createScheduleRangeLoader, consecutiveDates, summarizeWeek, dailyConsecutiveSchedule, shiftScheduleDate } from "@/lib/schedule-insights";
 import { fetchRoster } from "@/lib/yahoo";
 import { fetchYahooXml } from "@/lib/yahoo-client";
 import { datesInPeriod, parseGameWeeks } from "@/lib/weekly-player-stats";
@@ -42,6 +42,7 @@ export async function loadRecommendationPeriod(options: {
     if (!period.startDate || !period.endDate) throw new Error("Yahoo 未提供週次日期");
     datesInPeriod(period.startDate, period.endDate);
     weeklyTeamSchedule = summarizeWeek(period.startDate, period.endDate, timeZone, await loadRange(period.startDate, period.endDate));
+    weeklyTeamSchedule.dailyConsecutive = dailyConsecutiveSchedule(period.startDate, period.endDate, await loadRange(period.startDate, shiftScheduleDate(period.endDate, 1)));
     const now = new Date();
     const start = [date, period.startDate, todayInTimeZone(timeZone, now)].sort().at(-1)!;
     const end = period.endDate;

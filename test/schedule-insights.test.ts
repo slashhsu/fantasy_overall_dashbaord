@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { consecutiveDates, consecutiveGamesForTeam, createScheduleRangeLoader, summarizeWeek } from "@/lib/schedule-insights";
+import { consecutiveDates, consecutiveGamesForTeam, createScheduleRangeLoader, summarizeWeek, dailyConsecutiveSchedule } from "@/lib/schedule-insights";
 import { fetchNbaSchedule } from "@/lib/nba-schedule";
 import type { ScheduleGame } from "@/lib/types";
 vi.mock("@/lib/nba-schedule", () => ({ fetchNbaSchedule: vi.fn() }));
@@ -49,4 +49,20 @@ describe("streaming schedule insights", () => {
     expect(fetchNbaSchedule).toHaveBeenCalledTimes(5);
     expect(result).toMatchObject({ complete: false, missingScheduleDates: ["2030-02-01"] });
   });
+});
+
+
+it("lists calendar-day pairs including Sunday into next Monday, without league pickup offsets", () => {
+  const games = [game("2030-01-28"), game("2030-01-29"), game("2030-02-03", "final"), game("2030-02-04")];
+  const days = dailyConsecutiveSchedule("2030-01-28", "2030-02-03", range(games));
+  expect(days).toHaveLength(7);
+  expect(days[0]).toEqual({ date: "2030-01-28", nextDate: "2030-01-29", teams: ["GSW", "POR"], complete: true });
+  expect(days[1].teams).toEqual([]);
+  expect(days[6]).toEqual({ date: "2030-02-03", nextDate: "2030-02-04", teams: ["GSW", "POR"], complete: true });
+  expect(summarizeWeek("2030-01-28", "2030-02-03", "UTC", range(games.filter((g) => g.date <= "2030-02-03"))).groups[0].games).toBe(3);
+});
+it("marks only pairs affected by missing provider dates incomplete and retains confirmed teams", () => {
+  const days = dailyConsecutiveSchedule("2030-01-28", "2030-02-03", { games: [game("2030-02-03"), game("2030-02-04")], complete: false, missingScheduleDates: ["2030-02-05"] });
+  expect(days[0].complete).toBe(true);
+  expect(days[6]).toMatchObject({ teams: ["GSW", "POR"], complete: false });
 });

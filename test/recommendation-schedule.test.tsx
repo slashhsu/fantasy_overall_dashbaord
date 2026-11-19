@@ -16,7 +16,7 @@ it.each(["daily", "remaining-week"] as const)("shows the weekly summary and cons
   expect(dashboard.recommendations.length).toBeGreaterThan(0);
   dashboard.recommendationHorizon = horizon;
   dashboard.recommendations = [{ ...dashboard.recommendations[0], consecutiveGames: { dates: ["2025-02-24", "2025-02-25"], status: "yes" } }];
-  dashboard.weeklyTeamSchedule = { startDate: "2025-02-24", endDate: "2025-03-02", timeZone: "UTC", status: "complete", missingScheduleDates: [], groups: [{ games: 5, teams: ["GSW", "POR"] }] };
+  dashboard.weeklyTeamSchedule = { startDate: "2025-02-24", endDate: "2025-03-02", timeZone: "UTC", status: "complete", missingScheduleDates: [], groups: [{ games: 5, teams: ["GSW", "POR"] }], dailyConsecutive: [{ date: "2025-03-02", nextDate: "2025-03-03", teams: ["GSW", "POR"], complete: true }, { date: "2025-02-24", nextDate: "2025-02-25", teams: [], complete: true }] };
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     const url = new URL(String(input), "http://localhost");
     return { ok: true, json: async () => url.pathname === "/api/leagues" ? { leagues: demoLeagues } : { ...dashboard, targetDate: url.searchParams.get("date"), timeZone: url.searchParams.get("timeZone"), recommendationHorizon: url.searchParams.get("recommendationHorizon") } };
@@ -25,6 +25,8 @@ it.each(["daily", "remaining-week"] as const)("shows the weekly summary and cons
   if (horizon === "remaining-week") fireEvent.change(screen.getByRole("combobox", { name: "推薦期間" }), { target: { value: horizon } });
   expect(await screen.findByText("本週 NBA 球隊場次")).toBeInTheDocument();
   expect(screen.getByText("5 場：").parentElement).toHaveTextContent("GSW / POR");
+  expect(screen.getByText("週日（03/02–03/03）：").parentElement).toHaveTextContent("GSW / POR");
+  expect(screen.getByText("週一（02/24–02/25）：").parentElement).toHaveTextContent("無");
   expect(screen.getByText(/^連兩天：是/)).toHaveTextContent("2025-02-24 / 2025-02-25");
   cleanup();
   dashboard.recommendations = [];

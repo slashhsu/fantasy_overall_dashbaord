@@ -4,7 +4,7 @@ import { fetchNbaSchedule } from "@/lib/nba-schedule";
 import { todayInTimeZone } from "@/lib/date-time";
 import { datesInPeriod } from "@/lib/weekly-player-stats";
 import { normalizeTeamAbbreviation } from "@/lib/stats";
-import type { ScheduleGame, WeeklyTeamSchedule, ConsecutiveGames } from "@/lib/types";
+import type { ScheduleGame, WeeklyTeamSchedule, ConsecutiveGames, DailyConsecutiveSchedule } from "@/lib/types";
 
 export const NBA_TEAMS = "ATL BOS BKN CHA CHI CLE DAL DEN DET GSW HOU IND LAC LAL MEM MIA MIL MIN NOP NYK OKC ORL PHI PHX POR SAC SAS TOR UTA WAS".split(" ");
 export const shiftScheduleDate = (date: string, delta: number) => new Date(Date.parse(date) + delta * 86400000).toISOString().slice(0, 10);
@@ -65,4 +65,15 @@ export function consecutiveGamesForTeam(team: string, dates: [string, string], r
   const normalized = normalizeTeamAbbreviation(team);
   const playsBoth = dates.every((date) => range.games.some((g) => g.date === date && [g.homeTeam, g.awayTeam].includes(normalized)));
   return { dates, status: playsBoth ? "yes" : range.complete && NBA_TEAMS.includes(normalized) ? "no" : "unknown" };
+}
+
+/** Calendar dates are used directly; league-specific pickup offsets do not apply here. */
+export function dailyConsecutiveSchedule(start: string, end: string, range: ScheduleRange): DailyConsecutiveSchedule[] {
+  return datesInPeriod(start, end).map((date) => {
+    const nextDate = shiftScheduleDate(date, 1);
+    const teamsOn = (day: string) => new Set(range.games.filter((game) => game.date === day).flatMap((game) => [game.homeTeam, game.awayTeam]));
+    const first = teamsOn(date), second = teamsOn(nextDate);
+    return { date, nextDate, teams: [...first].filter((team) => second.has(team)).sort(),
+      complete: !range.missingScheduleDates.some((day) => day >= shiftScheduleDate(date, -1) && day <= shiftScheduleDate(nextDate, 1)) };
+  });
 }

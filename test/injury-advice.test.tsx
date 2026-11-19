@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InjuryAdvice, injuryStorageKey } from "@/components/injury-advice";
 import type { InjuryHistory, InjuryResponse } from "@/lib/injury-types";
@@ -55,7 +55,7 @@ it("renders server groups, starts watching collapsed and removes old loose histo
   localStorage.setItem(oldKey, JSON.stringify({ ...history(), version: 1 }));
   const data = snapshot();
   data.players[0].status = "Q";
-  data.watchlist = [{ id: "watch", injuredKey: "nba.p.1", beneficiaryKey: "nba.p.2", benefiting: false, score: 8, helps: ["AST"], minutesDelta: 5, group: "watch", reason: "unconfirmed-absence", relatedInjuries: [{ playerKey: "nba.p.1", period: "lastmonth", games: 10, minutes: 32 }] }];
+  data.watchlist = [{ id: "watch", injuredKey: "nba.p.1", beneficiaryKey: "nba.p.2", benefiting: false, minutesDelta: 5, group: "watch", reason: "unconfirmed-absence", relatedInjuries: [{ playerKey: "nba.p.1", period: "lastmonth", games: 10, minutes: 32 }] }];
   data.exclusionCounts = { "傷員重要性不足或基準資料不足": 2 };
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => data })));
   const { container } = render(<InjuryAdvice {...props} />);
@@ -66,7 +66,7 @@ it("renders server groups, starts watching collapsed and removes old loose histo
   expect(details.open).toBe(true);
   expect(container.querySelectorAll(".injury-card .help-trigger")).toHaveLength(0);
   expect(container.querySelectorAll(".injury-toolbar .help-trigger")).toHaveLength(0);
-  expect(screen.getAllByRole("button", { name: "傷病推薦分數 說明" })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "傷病推薦分數 說明" })).not.toBeInTheDocument();
   expect(screen.getByText(/傷病觀察，尚未確認缺陣/)).toBeInTheDocument();
   expect(screen.getByText(/非已確認傷前健康期/)).toBeInTheDocument();
   expect(localStorage.getItem(oldKey)).toBeNull();
@@ -86,9 +86,55 @@ it("clears prior team cards and ignores their late response after switching team
 
 
 it("explains the inspected pool when no injury candidate passes the thresholds", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ...snapshot(), diagnostics: { players: 400, injured: 25, available: 200, ranked: 50 }, exclusionCounts: { "替補時間或增幅未達門檻": 3 } }) })));
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ...snapshot(), diagnostics: { players: 400, injured: 25, available: 200 }, exclusionCounts: { "替補時間或增幅未達門檻": 3 } }) })));
   render(<InjuryAdvice {...props} />);
-  expect(await screen.findByText(/已檢查 400 名球員/)).toHaveTextContent("25 名有傷病標記、200 名可取得；50 名進入獨立推薦評估");
-  expect(screen.getByText(/已檢查 400 名球員/)).toHaveTextContent("不受當天有無比賽或開賽鎖定影響");
+  expect(await screen.findByText(/已檢查 400 名球員/)).toHaveTextContent("25 名有傷病標記、200 名可取得");
+  expect(screen.getByText(/已檢查 400 名球員/)).toHaveTextContent("不受串流名單、推薦分數、當天賽程或開賽鎖定影響");
   expect(screen.getByText(/替補時間或增幅未達門檻（3）/)).toBeInTheDocument();
+});
+
+
+it("paginates all qualifying substitutes and all injuries in groups of 20 without showing scores", async () => {
+  const data = snapshot();
+  data.players = Array.from({ length: 21 }, (_, i) => ({ ...data.players[1], playerKey: `nba.p.${i + 100}`, name: `Backup ${i}`, status: "", percentOwned: 90 - i, availability: "waivers" as const }));
+  data.players.unshift({ ...snapshot().players[0], status: "O" });
+  data.opportunities = data.players.slice(1).map((p) => ({ id: `star:${p.playerKey}`, injuredKey: data.players[0].playerKey, beneficiaryKey: p.playerKey, benefiting: true, minutesDelta: 10, group: "featured", reason: "rotation-gain", relatedInjuries: [{ playerKey: data.players[0].playerKey, period: "lastmonth", games: 10, minutes: 32 }] }));
+  data.injuredPlayers = Array.from({ length: 21 }, (_, i) => ({ ...data.players[0], playerKey: `nba.p.${500 + i}`, name: `Injured ${i}`, percentOwned: i === 20 ? null : 99 - i, availability: "owned" }));
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => data })));
+  render(<InjuryAdvice {...props} />);
+  expect(await screen.findByText("Backup 0", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.queryByText("Backup 20", { selector: "strong" })).not.toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("navigation", { name: "精選補人分頁" })).getByRole("button", { name: "下一頁" }));
+  expect(screen.getByText("Backup 20", { selector: "strong" })).toBeInTheDocument();
+  expect(screen.queryByText("Backup 0", { selector: "strong" })).not.toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("navigation", { name: "全體傷病名單分頁" })).getByRole("button", { name: "下一頁" }));
+  expect(screen.getByText("Injured 20")).toBeInTheDocument();
+  expect(screen.getByText(/傷病標記：O · 擁有率：未知/)).toBeInTheDocument();
+  expect(screen.getByText(/擁有率：70.0% · Waiver/)).toBeInTheDocument();
+  expect(screen.queryByText(/目前推薦分數/)).not.toBeInTheDocument();
+});
+it("automatically continues a scan using POST and never records a partial snapshot", async () => {
+  const data = snapshot();
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => ({ ok: true, json: async () => init?.method === "POST"
+    ? { ...data, scan: { phase: "complete", complete: true, playersScanned: 400, statsProcessed: 20, statsTotal: 20 } }
+    : { ...data, status: "partial", scan: { phase: "metadata", complete: false, playersScanned: 150, statsProcessed: 0, statsTotal: 0, cursor: "signed-scan-state" } } }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<InjuryAdvice {...props} />);
+  await screen.findByText(/目前沒有可確認的復出釋出提醒/);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({ cursor: "signed-scan-state" }) });
+  expect(screen.queryByText(/掃描尚未完成/)).not.toBeInTheDocument();
+});
+it("stops at a failed batch, shows incomplete coverage, and retries its continuation explicitly", async () => {
+  const data = snapshot();
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => ({ ok: true, json: async () => init?.method === "POST" ? data
+    : { ...data, status: "partial", scan: { phase: "stats", complete: false, blocked: true, playersScanned: 400, statsProcessed: 0, statsTotal: 20, cursor: "retry-state" } } }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<InjuryAdvice {...props} />);
+  const retry = await screen.findByRole("button", { name: "繼續載入傷病資料" });
+  await waitFor(() => expect(retry).toBeEnabled());
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  fireEvent.click(retry);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(fetcher.mock.calls[1][1]).toMatchObject({ method: "POST", body: JSON.stringify({ cursor: "retry-state" }) });
 });

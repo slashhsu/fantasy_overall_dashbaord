@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { POST as login } from "@/app/api/login/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
 import { GET as matchupPlayers } from "@/app/api/matchup-players/route";
-import { GET as injuryAdvice } from "@/app/api/injury-advice/route";
+import { GET as injuryAdvice, POST as continueInjuryAdvice } from "@/app/api/injury-advice/route";
 import { todayInTimeZone } from "@/lib/date-time";
 import { GET as draft } from "@/app/api/draft/route";
 
@@ -19,6 +19,9 @@ describe("private dashboard API", () => {
     const headers = { cookie: session.headers.get("set-cookie") ?? "" };
     const params = new URLSearchParams({ leagueKey: "demo.l.101", teamKey: "demo.l.101.t.1", week: "19", date: todayInTimeZone("America/Los_Angeles"), timeZone: "America/Los_Angeles" });
     const response = await injuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { headers }));
+    expect((await continueInjuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { method: "POST", body: JSON.stringify({ cursor: "scan" }) }))).status).toBe(401);
+    expect((await continueInjuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { method: "POST", headers, body: "bad-json" }))).status).toBe(400);
+    expect((await continueInjuryAdvice(new Request(`http://localhost/api/injury-advice?${params}`, { method: "POST", headers, body: JSON.stringify({ cursor: 123 }) }))).status).toBe(400);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ status: "complete", demoMode: true, opportunities: [expect.objectContaining({ benefiting: true })] });
     params.set("watch", "invalid-id");

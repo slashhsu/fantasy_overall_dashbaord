@@ -281,6 +281,12 @@ const parsePlayer = (player: XmlNode, period: FreeAgent["period"]): FreeAgent =>
     .filter(Boolean);
   const selectedPosition = textValue(objectValue(player.selected_position).position) || undefined;
   return {
+    percentOwned: (() => {
+      const raw = textValue(objectValue(player.percent_owned).value);
+      const value = raw.trim() ? Number(raw) : NaN;
+      return Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
+    })(),
+    availability: ({ freeagents: "free-agent", waivers: "waivers", team: "owned" } as const)[textValue(objectValue(player.ownership).ownership_type) as "freeagents" | "waivers" | "team"] ?? "unknown",
     playerKey: textValue(player.player_key),
     playerId: textValue(player.player_id) || textValue(player.player_key).split(".p.")[1] || undefined,
     name: textValue(nameNode.full, "Unknown Player"),

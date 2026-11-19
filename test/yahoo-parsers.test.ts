@@ -202,3 +202,13 @@ it("parses Yahoo total minutes and MPG separately, including MM:SS and missing v
   const [draft] = parseDraftPlayerPage('<fantasy_content><players><player><player_key>478.p.1</player_key><player_stats><stats><stat><stat_id>1</stat_id><value>8</value></stat></stats></player_stats></player></players></fantasy_content>');
   expect(draft.yahooRank).toBeNull();
 });
+
+
+it("parses Yahoo ownership independently of league availability, preserving zero and missing values", async () => {
+  const { parseFreeAgentPage } = await import("@/lib/yahoo");
+  const parse = (rate: string, type: string) => parseFreeAgentPage(`<fantasy_content><players><player><player_key>nba.p.1</player_key><percent_owned><value>${rate}</value></percent_owned><ownership><ownership_type>${type}</ownership_type></ownership></player></players></fantasy_content>`, "unavailable")[0];
+  expect(parse("0", "freeagents")).toMatchObject({ percentOwned: 0, availability: "free-agent" });
+  expect(parse("89.5", "waivers")).toMatchObject({ percentOwned: 89.5, availability: "waivers" });
+  expect(parse("100", "team")).toMatchObject({ percentOwned: 100, availability: "owned" });
+  for (const invalid of ["", "--", "NaN", "-1", "101"]) expect(parse(invalid, "invalid")).toMatchObject({ percentOwned: null, availability: "unknown" });
+});

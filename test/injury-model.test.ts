@@ -4,7 +4,7 @@ import type { InjuryHistory, InjuryPlayer, InjuryResponse } from "@/lib/injury-t
 const now = Date.parse("2026-10-24T18:00:00Z");
 const star: InjuryPlayer = { playerKey: "nba.p.1", name: "Star", team: "BOS", position: "PG,SG", status: "O", statusKnown: true, weekGames: 0, weekMinutes: null, monthGames: 10, seasonGames: 20, monthMinutes: 32, seasonMinutes: 32, playedDates: [] };
 const backup: InjuryPlayer = { ...star, playerKey: "nba.p.2", name: "Backup", status: "", weekGames: 3, weekMinutes: 29, monthMinutes: 19, seasonMinutes: 20 };
-const opportunity: import("@/lib/injury-types").InjuryOpportunity = { id: "nba.p.1:nba.p.2", injuredKey: star.playerKey, beneficiaryKey: backup.playerKey, score: 10, helps: ["AST"], benefiting: true, minutesDelta: 10, group: "featured", reason: "rotation-gain", relatedInjuries: [{ playerKey: star.playerKey, period: "lastmonth", games: 10, minutes: 32 }] };
+const opportunity: import("@/lib/injury-types").InjuryOpportunity = { id: "nba.p.1:nba.p.2", injuredKey: star.playerKey, beneficiaryKey: backup.playerKey, benefiting: true, minutesDelta: 10, group: "featured", reason: "rotation-gain", relatedInjuries: [{ playerKey: star.playerKey, period: "lastmonth", games: 10, minutes: 32 }] };
 const snapshot = (overrides: Partial<InjuryResponse> = {}): InjuryResponse => ({ leagueKey: "nba.l.1", teamKey: "nba.l.1.t.1", generatedAt: new Date(now).toISOString(), observationDate: "2026-10-24", status: "complete", players: [star, backup], rosterKeys: [], opportunities: [opportunity], watchlist: [], exclusionCounts: {}, warnings: [], demoMode: false, ...overrides });
 const history: InjuryHistory = { version: 2, observations: [{ id: opportunity.id, injuredKey: star.playerKey, beneficiaryKey: backup.playerKey, nbaTeam: "BOS", episodeAt: "2026-10-20T18:00:00Z", lastInjuredAt: "2026-10-20T18:00:00Z", lastSeenAt: "2026-10-20T18:00:00Z", beneficiaryMinutes: 29 }], healthyBaselines: [] };
 describe("injury rotation evidence", () => {
@@ -61,4 +61,14 @@ it("uses MPG directly and prefers verified minute totals when both are present",
   const totals = injuryPlayer({ ...player, statWindows: { lastmonth: { "Games Played (GP)": 10, "Minutes Played": 320, "Minutes Per Game": 32.5 } } });
   expect(totals.monthMinutes).toBe(32);
   expect(injuryPlayer({ ...player, statWindows: { lastmonth: { "Games Played (GP)": 0, "Minutes Per Game": 32.5 } } }).monthMinutes).toBeNull();
+});
+
+
+it("keeps the highest-owned pairs when an uncapped opportunity list exceeds the 50-history limit", () => {
+  const players = Array.from({ length: 60 }, (_, i) => ({ ...backup, playerKey: `nba.p.${100 + i}`, percentOwned: i }));
+  const data = snapshot({ players: [star, ...players], opportunities: players.map((p) => ({ ...opportunity, id: `${star.playerKey}:${p.playerKey}`, beneficiaryKey: p.playerKey })) });
+  const observed = applyInjurySnapshot(emptyInjuryHistory(), data, now).history.observations;
+  expect(observed).toHaveLength(50);
+  expect(observed.some((p) => p.beneficiaryKey === "nba.p.159")).toBe(true);
+  expect(observed.some((p) => p.beneficiaryKey === "nba.p.100")).toBe(false);
 });

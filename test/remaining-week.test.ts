@@ -55,7 +55,7 @@ describe("weekly period and shared inputs", () => {
     expect(results[0].period.startDate).toBe("2029-12-31");
     expect(results[0].counts.get(demoFreeAgents[0].team)).toBe(1);
     expect(fetchRoster).toHaveBeenCalledTimes(1);
-    expect(fetchNbaSchedule).toHaveBeenCalledTimes(8);
+    expect(fetchNbaSchedule).toHaveBeenCalledTimes(9);
     expect(results[0].weeklyTeamSchedule.startDate).toBe("2029-12-29");
   });
   it("labels partial schedules and unavailable rosters instead of creating false zero/usable totals", async () => {

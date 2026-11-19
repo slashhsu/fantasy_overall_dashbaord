@@ -1,5 +1,6 @@
-import type { Recommendation, UpdateStatus } from "@/lib/types";
+import type { PlayerAvailability, UpdateStatus } from "@/lib/types";
 export interface InjuryPlayer {
+  percentOwned?: number | null; availability?: PlayerAvailability;
   playerKey: string; name: string; team: string; position: string; headshotUrl?: string;
   status: string; statusKnown: boolean; weekGames: number | null; weekMinutes: number | null;
   monthGames: number | null; seasonGames: number | null;
@@ -11,12 +12,14 @@ export interface InjuryBaseline {
 export type InjuryOpportunityReason = "rotation-gain" | "unconfirmed-absence" | "small-sample" | "limited-data";
 export interface InjuryOpportunity {
   id: string; injuredKey: string; beneficiaryKey: string; benefiting: boolean;
-  score: number; scoreType?: Recommendation["scoreType"]; helps: string[]; minutesDelta: number;
+  minutesDelta: number;
   group: "featured" | "watch"; reason: InjuryOpportunityReason;
   relatedInjuries: InjuryBaseline[];
 }
 export interface InjuryResponse {
-  diagnostics?: { players: number; injured: number; available: number; ranked: number };
+  diagnostics?: { players: number; injured: number; available: number };
+  injuredPlayers?: InjuryPlayer[];
+  scan?: { phase: "metadata" | "stats" | "returns" | "complete"; complete: boolean; playersScanned: number; statsProcessed: number; statsTotal: number; blocked?: boolean; cursor?: string };
   leagueKey: string; teamKey: string; generatedAt: string; observationDate: string;
   status: "complete" | "partial" | "historical"; players: InjuryPlayer[];
   rosterKeys: string[]; opportunities: InjuryOpportunity[]; watchlist: InjuryOpportunity[]; exclusionCounts: Record<string, number>; warnings: string[];

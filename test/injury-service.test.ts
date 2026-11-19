@@ -2,90 +2,148 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getInjuryAdvice } from "@/lib/injury-service";
 import { resetCacheForTests } from "@/lib/cache";
 import { getDashboard } from "@/lib/dashboard-service";
-import { fetchFreeAgentPool, fetchRoster } from "@/lib/yahoo";
+import { fetchFreeAgentPool, fetchLeagues, fetchLeagueTeams, fetchRoster } from "@/lib/yahoo";
 import { fetchYahooXml } from "@/lib/yahoo-client";
-import type { DashboardResponse, FreeAgent } from "@/lib/types";
+import { fetchNbaSchedule } from "@/lib/nba-schedule";
+import type { InjuryResponse } from "@/lib/injury-types";
 vi.mock("@/lib/dashboard-service", () => ({ getDashboard: vi.fn() }));
+vi.mock("@/lib/nba-schedule", () => ({ fetchNbaSchedule: vi.fn() }));
 vi.mock("@/lib/yahoo-client", () => ({ fetchYahooXml: vi.fn() }));
-vi.mock("@/lib/yahoo", async (original) => ({ ...await original<typeof import("@/lib/yahoo")>(), fetchFreeAgentPool: vi.fn(), fetchRoster: vi.fn() }));
-const player = (key: string): FreeAgent => ({ playerKey: key, name: key, team: "BOS", position: "PG", status: "", period: "season", stats: {}, statWindows: { lastweek: { "Games Played (GP)": 3, "Minutes Played": 90 }, lastmonth: { "Games Played (GP)": 10, "Minutes Played": 200 } } });
+vi.mock("@/lib/yahoo", async (original) => ({ ...await original<typeof import("@/lib/yahoo")>(), fetchLeagues: vi.fn(), fetchLeagueTeams: vi.fn(), fetchRoster: vi.fn(), fetchFreeAgentPool: vi.fn() }));
 const options = { leagueKey: "nba.l.1", teamKey: "nba.l.1.t.1", week: 1, date: "2026-10-24", timeZone: "America/Los_Angeles", watchKeys: [] as string[] };
-const takenXml = '<fantasy_content><players><player><player_key>nba.p.1</player_key><name><full>Star</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position><status>O</status></player><player><player_key>nba.p.3</player_key><name><full>Owned Backup</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position></player></players></fantasy_content>';
+const metadata = (id: number, status = "", ownership = "freeagents", team = "BOS", percent: number | null = 30) => `<player><player_key>nba.p.${id}</player_key><name><full>Player ${id}</full></name><editorial_team_abbr>${team}</editorial_team_abbr><display_position>PG</display_position><status>${status}</status><ownership><ownership_type>${ownership}</ownership_type></ownership>${percent == null ? "" : `<percent_owned><value>${percent}</value></percent_owned>`}</player>`;
+const xml = (rows: string[]) => `<fantasy_content><players>${rows.join("")}</players></fantasy_content>`;
+let market: string[];
+const statsXml = (path: string) => {
+  const keys = /player_keys=([^/]+)/.exec(path)?.[1].split(",") ?? [];
+  const period = /type=(\w+)/.exec(path)?.[1];
+  return xml(keys.map((key) => {
+    const star = key === "nba.p.1";
+    const games = period === "lastweek" ? 3 : 10;
+    const minutes = star ? 32 : period === "lastweek" ? 30 : 19;
+    return `<player><player_key>${key}</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>${games}</value></stat><stat><stat_id>26</stat_id><value>${minutes}:00</value></stat></stats></player_stats></player>`;
+  }));
+};
+const source = async (path: string) => {
+  if (path.includes(";out=metadata,ownership,percent_owned")) {
+    const offset = Number(/start=(\d+)/.exec(path)?.[1] ?? 0);
+    return xml(market.slice(offset, offset + 25));
+  }
+  return statsXml(path);
+};
+async function finish(first?: InjuryResponse) {
+  let response = first ?? await getInjuryAdvice(options);
+  for (let i = 0; response.scan?.cursor && !response.scan.blocked && i < 30; i++) response = await getInjuryAdvice({ ...options, cursor: response.scan.cursor });
+  return response;
+}
 beforeEach(() => {
-  vi.stubEnv("YAHOO_DEMO_MODE", "false"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-24T18:00:00Z")); resetCacheForTests();
-  vi.mocked(getDashboard).mockResolvedValue({ league: { gameKey: "nba", currentWeek: 1 }, recommendations: [{ playerKey: "nba.p.2", score: 10, scoreType: "expected-categories", reason: ["AST"] }] } as DashboardResponse);
-  vi.mocked(fetchFreeAgentPool).mockResolvedValue({ players: [player("nba.p.2"), player("nba.p.3")], dataQuality: { status: "complete", projectionSource: "current-season", failedWindows: [], warnings: [], stale: false } });
-  vi.mocked(fetchRoster).mockResolvedValue({ available: true, players: [player("nba.p.4")] });
-  vi.mocked(fetchYahooXml).mockImplementation(async (path) => {
-    if (path.includes("status=T")) return takenXml;
-    return '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>5</value></stat><stat><stat_id>2</stat_id><value>160</value></stat></stats></player_stats></player></players></fantasy_content>';
-  });
+  vi.stubEnv("YAHOO_DEMO_MODE", "false"); vi.stubEnv("APP_PASSWORD", "test-password"); vi.stubEnv("SESSION_SECRET", "test-secret-at-least-thirty-two-characters");
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-24T18:00:00Z")); resetCacheForTests();
+  market = [metadata(1, "O", "team", "BOS", 99), metadata(2), metadata(3, "", "team")];
+  vi.mocked(fetchLeagues).mockResolvedValue([{ gameKey: "nba", leagueKey: options.leagueKey, name: "League", season: 2026, currentWeek: 1, startWeek: 1, endWeek: 25, userTeam: { key: options.teamKey, name: "My team" } }]);
+  vi.mocked(fetchLeagueTeams).mockResolvedValue([{ key: options.teamKey, name: "My team" }, { key: "nba.l.1.t.2", name: "Other team" }]);
+  vi.mocked(fetchRoster).mockResolvedValue({ available: true, players: [] });
+  vi.mocked(fetchYahooXml).mockImplementation(source);
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
-describe("injury advice source aggregation", () => {
-  it("includes other managers' injured players and excludes already-owned candidates", async () => {
-    const response = await getInjuryAdvice(options);
-    expect(getDashboard).toHaveBeenCalledWith(expect.objectContaining({ recommendationPurpose: "injury" }));
-    expect(response.diagnostics).toEqual({ players: 4, injured: 1, available: 1, ranked: 1 });
-    expect(response.opportunities.map((item) => item.beneficiaryKey)).toEqual(["nba.p.2"]);
-    expect(response.opportunities[0]).toMatchObject({ benefiting: true, score: 10, scoreType: "expected-categories" });
-    expect(response.rosterKeys).toEqual(["nba.p.4"]);
+
+describe("complete-market injury advice", () => {
+  it("uses all available players without dashboard, schedule, category or recommendation membership", async () => {
+    const response = await finish();
+    expect(response.status).toBe("complete");
+    expect(response.opportunities).toHaveLength(1);
+    expect(response.opportunities[0]).toMatchObject({ beneficiaryKey: "nba.p.2", benefiting: true, minutesDelta: 11 });
+    expect(response.opportunities[0]).not.toHaveProperty("score");
+    expect(response.injuredPlayers?.map((p) => p.playerKey)).toEqual(["nba.p.1"]);
+    expect(response.diagnostics).toEqual({ players: 3, injured: 1, available: 1 });
+    expect(getDashboard).not.toHaveBeenCalled(); expect(fetchFreeAgentPool).not.toHaveBeenCalled(); expect(fetchNbaSchedule).not.toHaveBeenCalled();
     const count = vi.mocked(fetchYahooXml).mock.calls.length;
-    await getInjuryAdvice(options);
-    expect(fetchYahooXml).toHaveBeenCalledTimes(count);
+    await finish(); expect(fetchYahooXml).toHaveBeenCalledTimes(count);
   });
-  it("labels incomplete source data rather than treating absent players as healthy", async () => {
-    vi.mocked(fetchYahooXml).mockRejectedValue(new Error("upstream unavailable"));
-    const response = await getInjuryAdvice(options);
-    expect(response.status).toBe("partial"); expect(response.opportunities).toEqual([]);
+  it("coalesces source batches for twenty simultaneous visitors", async () => {
+    const responses = await Promise.all(Array.from({ length: 20 }, () => getInjuryAdvice(options)));
+    expect(responses.every((response) => response.opportunities.length === 1)).toBe(true);
+    expect(fetchLeagues).toHaveBeenCalledTimes(1);
+    expect(fetchLeagueTeams).toHaveBeenCalledTimes(1);
+    expect(fetchRoster).toHaveBeenCalledTimes(1);
+    const calls = vi.mocked(fetchYahooXml).mock.calls.map(([path]) => path);
+    expect(calls.filter((path) => path.includes(";out=metadata"))).toHaveLength(1);
+    for (const period of ["lastweek", "lastmonth", "season"]) expect(calls.filter((path) => path.includes(`type=${period}`))).toHaveLength(1);
   });
-  it("does not fetch injury metadata for historical dates or historical weeks", async () => {
-    expect((await getInjuryAdvice({ ...options, date: "2026-10-20" })).status).toBe("historical");
-    expect((await getInjuryAdvice({ ...options, week: 2 })).status).toBe("historical");
-    expect(fetchYahooXml).not.toHaveBeenCalled(); expect(fetchFreeAgentPool).not.toHaveBeenCalled();
+  it("includes waiver candidates and low-minute owned injuries, excludes Q from the full injury table, and preserves unknown ownership rates", async () => {
+    market = [metadata(1, "O", "team", "BOS", 99), metadata(2, "", "waivers", "BOS", 0), metadata(3, "Q", "team", "BOS", 100), metadata(4, "IL+", "team", "BOS", null)];
+    const response = await finish();
+    expect(response.opportunities[0].beneficiaryKey).toBe("nba.p.2");
+    expect(response.players.find((p) => p.playerKey === "nba.p.2")).toMatchObject({ availability: "waivers", percentOwned: 0 });
+    expect(response.injuredPlayers?.map((p) => p.playerKey)).toEqual(["nba.p.1", "nba.p.4"]);
+    expect(response.injuredPlayers?.[1].percentOwned).toBeNull();
+    expect(response.injuredPlayers?.[1].monthMinutes).toBe(19);
   });
-  it("requires dated GP records to supply return evidence", async () => {
+  it("continues beyond 300 players, across cache resets/cold starts, without a free-agent cap", async () => {
+    vi.stubEnv("FREE_AGENT_LIMIT", "25");
+    market = [metadata(1, "O", "team"), ...Array.from({ length: 324 }, (_, i) => metadata(10 + i, "", "freeagents", "FA")), metadata(999, "", "waivers")];
+    const first = await getInjuryAdvice(options);
+    expect(first.scan).toMatchObject({ complete: false, phase: "metadata", playersScanned: 150 });
+    expect(first.status).toBe("partial");
+    resetCacheForTests();
+    const response = await finish(first);
+    expect(response.scan).toMatchObject({ complete: true, playersScanned: 326 });
+    expect(response.opportunities.some((p) => p.beneficiaryKey === "nba.p.999")).toBe(true);
+    expect(vi.mocked(fetchYahooXml).mock.calls.filter(([path]) => path.includes(";start=0;")).length).toBe(1);
+  });
+  it("retries the exact failed batch and then completes without a false empty/complete result", async () => {
+    let failed = false;
     vi.mocked(fetchYahooXml).mockImplementation(async (path) => {
-      if (path.includes("status=T")) return takenXml.replace('<status>O</status>', '');
-      if (path.includes("type=date")) return '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><coverage_type>date</coverage_type><date>2026-10-23</date><stats><stat><stat_id>0</stat_id><value>1</value></stat></stats></player_stats></player></players></fantasy_content>';
-      return '<fantasy_content />';
+      if (!failed && path.includes("type=lastmonth")) { failed = true; throw new Error("offline"); }
+      return source(path);
     });
-    const response = await getInjuryAdvice({ ...options, watchKeys: ["nba.p.1"] });
-    expect(response.players.find((item) => item.playerKey === "nba.p.1")?.playedDates).toEqual(["2026-10-23"]);
+    const first = await getInjuryAdvice(options);
+    expect(first.scan).toMatchObject({ complete: false, blocked: true, phase: "stats" });
+    expect(first.status).toBe("partial"); expect(first.opportunities).toEqual([]);
+    const response = await finish(await getInjuryAdvice({ ...options, cursor: first.scan?.cursor }));
+    expect(response.status).toBe("complete"); expect(response.opportunities).toHaveLength(1);
   });
-});
-
-it("demotes qualified substitutes when roster coverage is partial and never fills with a weak candidate", async () => {
-  vi.mocked(fetchRoster).mockResolvedValue({ available: false, players: [] });
-  const response = await getInjuryAdvice(options);
-  expect(response.status).toBe("partial"); expect(response.opportunities).toEqual([]);
-  expect(response.watchlist[0]).toMatchObject({ beneficiaryKey: "nba.p.2", group: "watch", reason: "limited-data" });
-});
-it("honors stale dashboard inputs even when the injury-specific caches are fresh", async () => {
-  const dashboard = await getDashboard({} as never);
-  vi.mocked(getDashboard).mockResolvedValue({ ...dashboard, updateStatus: { fetchedAt: "2026-10-24T17:59:00Z", nextRefreshAt: "2026-10-24T18:00:00Z", stale: true } });
-  const response = await getInjuryAdvice(options);
-  expect(response.opportunities).toEqual([]); expect(response.watchlist[0].reason).toBe("limited-data");
-});
-
-it("coalesces injury source requests for twenty simultaneous visitors", async () => {
-  const responses = await Promise.all(Array.from({ length: 20 }, () => getInjuryAdvice(options)));
-  expect(responses.every((r) => r.opportunities.length === 1 && r.watchlist.length === 0)).toBe(true);
-  const paths = vi.mocked(fetchYahooXml).mock.calls.map(([path]) => path);
-  expect(paths.filter((path) => path.includes("status=T"))).toHaveLength(1);
-  for (const period of ["lastweek", "lastmonth", "season"]) expect(paths.filter((path) => path.includes(`type=${period}`))).toHaveLength(1);
-  expect(fetchFreeAgentPool).toHaveBeenCalledTimes(1); expect(fetchRoster).toHaveBeenCalledTimes(1);
-});
-
-it("produces an injury recommendation from real-shaped Yahoo MPG duration stats rather than dividing MPG by GP", async () => {
-  const { parseFreeAgentPage, mergePlayerWindows } = await import("@/lib/yahoo");
-  const rows = (["lastweek", "lastmonth", "season"] as const).map((period) => parseFreeAgentPage(`<fantasy_content><players><player><player_key>nba.p.2</player_key><name><full>Backup</full></name><editorial_team_abbr>BOS</editorial_team_abbr><display_position>PG</display_position><player_stats><stats>
-    <stat><stat_id>0</stat_id><value>${period === "lastweek" ? 3 : 10}</value></stat>
-    <stat><stat_id>26</stat_id><value>${period === "lastweek" ? "29:30" : "19:00"}</value></stat>
-  </stats></player_stats></player></players></fantasy_content>`, period)[0]);
-  vi.mocked(fetchFreeAgentPool).mockResolvedValue({ players: [mergePlayerWindows(rows)!], dataQuality: { status: "complete", projectionSource: "current-season", failedWindows: [], warnings: [], stale: false } });
-  vi.mocked(fetchYahooXml).mockImplementation(async (path) => path.includes("status=T") ? takenXml : '<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><stats><stat><stat_id>0</stat_id><value>5</value></stat><stat><stat_id>26</stat_id><value>32:00</value></stat></stats></player_stats></player></players></fantasy_content>');
-  const result = await getInjuryAdvice(options);
-  expect(result.opportunities[0]).toMatchObject({ beneficiaryKey: "nba.p.2", minutesDelta: 10.5 });
-  expect(result.players.find((player) => player.playerKey === "nba.p.1")?.monthMinutes).toBe(32);
+  it("does not infer missing ownership or missing stats as availability or zero", async () => {
+    market = [metadata(1, "O", "team"), metadata(2, "", "invalid")];
+    const response = await finish();
+    expect(response.status).toBe("partial"); expect(response.opportunities).toEqual([]); expect(response.diagnostics?.available).toBe(0);
+  });
+  it("requires dated GP evidence for watched, cleared players and continues seven daily batches", async () => {
+    market = [metadata(1, "", "team"), metadata(2, "", "team")];
+    vi.mocked(fetchYahooXml).mockImplementation(async (path) => {
+      if (!path.includes("type=date")) return source(path);
+      const date = /date=(\d{4}-\d{2}-\d{2})/.exec(path)?.[1];
+      return `<fantasy_content><players><player><player_key>nba.p.1</player_key><player_stats><coverage_type>date</coverage_type><date>${date}</date><stats><stat><stat_id>0</stat_id><value>${date === "2026-10-23" ? 1 : 0}</value></stat></stats></player_stats></player></players></fantasy_content>`;
+    });
+    let response = await getInjuryAdvice({ ...options, watchKeys: ["nba.p.1"] });
+    while (response.scan?.cursor) response = await getInjuryAdvice({ ...options, watchKeys: ["nba.p.1"], cursor: response.scan.cursor });
+    expect(response.players.find((p) => p.playerKey === "nba.p.1")?.playedDates).toEqual(["2026-10-23"]);
+  });
+  it("does not mistake a missing Yahoo collection for a verified empty market", async () => {
+    vi.mocked(fetchYahooXml).mockResolvedValue("<fantasy_content />");
+    const response = await getInjuryAdvice(options);
+    expect(response.status).toBe("partial");
+    expect(response.scan).toMatchObject({ complete: false, blocked: true, playersScanned: 0 });
+  });
+  it("stops repeated Yahoo pages rather than silently truncating or looping", async () => {
+    market = Array.from({ length: 25 }, (_, i) => metadata(i + 1));
+    vi.mocked(fetchYahooXml).mockResolvedValue(xml(market));
+    const response = await getInjuryAdvice(options);
+    expect(response.scan).toMatchObject({ complete: false, blocked: true, playersScanned: 25 });
+    expect(response.warnings.some((w) => w.includes("分頁重複"))).toBe(true);
+  });
+  it("validates league/team membership and never scans historical snapshots", async () => {
+    await expect(getInjuryAdvice({ ...options, teamKey: "nba.l.2.t.1" })).rejects.toThrow("not in this league");
+    expect((await getInjuryAdvice({ ...options, date: "2026-10-20" })).status).toBe("historical");
+    expect(fetchYahooXml).not.toHaveBeenCalled();
+  });
+  it("rejects tampered, cross-team and expired continuation state", async () => {
+    market = Array.from({ length: 160 }, (_, i) => metadata(i + 1));
+    const first = await getInjuryAdvice(options);
+    const cursor = first.scan!.cursor!;
+    await expect(getInjuryAdvice({ ...options, cursor: `${cursor}x` })).rejects.toThrow("續載");
+    await expect(getInjuryAdvice({ ...options, teamKey: "nba.l.1.t.2", cursor })).rejects.toThrow("續載");
+    vi.advanceTimersByTime(11 * 60_000);
+    await expect(getInjuryAdvice({ ...options, cursor })).rejects.toThrow("續載");
+  });
 });

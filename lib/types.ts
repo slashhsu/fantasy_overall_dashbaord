@@ -91,7 +91,11 @@ export interface MatchupCategoryRow {
   lowerIsBetter: boolean;
 }
 
+export type PlayerAvailability = "free-agent" | "waivers" | "owned" | "unknown";
+
 export interface FreeAgent {
+  percentOwned?: number | null;
+  availability?: PlayerAvailability;
   playerKey: string;
   playerId?: string;
   name: string;
@@ -367,7 +371,15 @@ export interface ConsecutiveGames {
   status: "yes" | "no" | "unknown";
 }
 
+export interface DailyConsecutiveSchedule {
+  date: string;
+  nextDate: string;
+  teams: string[];
+  complete: boolean;
+}
+
 export interface WeeklyTeamSchedule {
+  dailyConsecutive?: DailyConsecutiveSchedule[];
   startDate: string | null;
   endDate: string | null;
   timeZone: string;

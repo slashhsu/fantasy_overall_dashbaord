@@ -679,3 +679,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .weekly-team-schedule { display: block; }
 .consecutive-games { display: block; margin-top: 0.35rem; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+
+.daily-consecutive-schedule { margin-top: 0.65rem; }
+.injury-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; margin: 16px 0; font-size: 12px; }

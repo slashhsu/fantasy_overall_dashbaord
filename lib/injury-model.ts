@@ -19,6 +19,7 @@ const windowMinutes = (player: FreeAgent, period: "lastweek" | "lastmonth" | "se
 };
 export function injuryPlayer(player: FreeAgent): InjuryPlayer {
   return { playerKey: player.playerKey, name: player.name, team: player.team, position: player.position,
+    percentOwned: player.percentOwned ?? null, availability: player.availability ?? "unknown",
     headshotUrl: player.headshotUrl, status: player.status ?? "", statusKnown: player.status !== undefined,
     weekGames: player.statWindows?.lastweek?.["Games Played (GP)"] ?? null,
     weekMinutes: windowMinutes(player, "lastweek"), monthGames: player.statWindows?.lastmonth?.["Games Played (GP)"] ?? null, seasonGames: player.statWindows?.season?.["Games Played (GP)"] ?? null,
@@ -31,7 +32,7 @@ export function positionsOverlap(a: string, b: string) {
 }
 export const INJURY_RULES = {
   baselineGames: 5, importantMinutes: 28, recentGames: 3, recentMinutes: 24,
-  minutesGain: 5, perInjuredPlayer: 2, perSection: 5, recommendationLimit: 50,
+  minutesGain: 5,
   returnDecline: 4,
 } as const;
 const validGames = (games: number | null): games is number => games !== null && Number.isInteger(games) && games >= 0;
@@ -47,14 +48,16 @@ export function importantBaseline(player: InjuryPlayer) {
   }
   return null;
 }
+export const compareOwnership = (a: Pick<InjuryPlayer, "percentOwned">, b: Pick<InjuryPlayer, "percentOwned">) => (b.percentOwned ?? -1) - (a.percentOwned ?? -1);
+export const allInjuredPlayers = (players: InjuryPlayer[]) => players.filter((player) => player.statusKnown && injuryState(player.status) === "out")
+  .sort((a, b) => compareOwnership(a, b) || a.name.localeCompare(b.name) || a.playerKey.localeCompare(b.playerKey));
 export function findInjuryOpportunities(
-  players: InjuryPlayer[], available: Set<string>, scores: Map<string, { score: number; scoreType?: InjuryOpportunity["scoreType"]; helps: string[] }>,
-  options: { points?: boolean; limitedData?: boolean } = {},
+  players: InjuryPlayer[], available: Set<string>,
+  options: { limitedData?: boolean } = {},
 ): { opportunities: InjuryOpportunity[]; watchlist: InjuryOpportunity[]; exclusionCounts: Record<string, number> } {
   const featured: InjuryOpportunity[] = [], watch: InjuryOpportunity[] = [];
   const exclusionCounts: Record<string, number> = {};
   const exclude = (reason: string) => { exclusionCounts[reason] = (exclusionCounts[reason] ?? 0) + 1; };
-  const ranked = new Map([...scores].slice(0, INJURY_RULES.recommendationLimit));
   for (const star of players) {
     if (!star.statusKnown || !["out", "watch"].includes(injuryState(star.status)) || !star.team || star.team === "FA") continue;
     const baseline = importantBaseline(star);
@@ -68,8 +71,6 @@ export function findInjuryOpportunities(
     const candidates = players.filter((player) => player.playerKey !== star.playerKey && available.has(player.playerKey) && player.statusKnown && injuryState(player.status) === "clear" && player.team === star.team && positionsOverlap(player.position, star.position));
     if (!candidates.length) exclude("沒有可取得的同隊相近位置球員");
     for (const player of candidates) {
-      const score = ranked.get(player.playerKey);
-      if (!score || !Number.isFinite(score.score) || (!options.points && !score.helps.length)) { exclude("未符合目前推薦需求"); continue; }
       if (!validMinutes(player.weekMinutes) || !validMinutes(player.monthMinutes) || !validGames(player.weekGames) || player.weekGames === 0 || !validGames(player.monthGames) || player.monthGames === 0) {
         exclude("替補上場資料不足"); continue;
       }
@@ -82,22 +83,23 @@ export function findInjuryOpportunities(
       const group = benefiting && !options.limitedData ? "featured" : "watch";
       const reason = options.limitedData ? "limited-data" : injuryState(star.status) === "watch" ? "unconfirmed-absence" : !enoughGames ? "small-sample" : "rotation-gain";
       const item: InjuryOpportunity = { id: `${star.playerKey}:${player.playerKey}`, injuredKey: star.playerKey, beneficiaryKey: player.playerKey,
-        benefiting, score: score.score, scoreType: score.scoreType, helps: score.helps, minutesDelta: delta, group, reason, relatedInjuries: [baseline] };
+        benefiting, minutesDelta: delta, group, reason, relatedInjuries: [baseline] };
       (group === "featured" ? featured : watch).push(item);
     }
   }
-  const compare = (a: InjuryOpportunity, b: InjuryOpportunity) => b.score - a.score || b.minutesDelta - a.minutesDelta || a.beneficiaryKey.localeCompare(b.beneficiaryKey) || a.injuredKey.localeCompare(b.injuredKey);
+  const byKey = new Map(players.map((player) => [player.playerKey, player]));
+  const compare = (a: InjuryOpportunity, b: InjuryOpportunity) => compareOwnership(byKey.get(a.beneficiaryKey)!, byKey.get(b.beneficiaryKey)!)
+    || b.minutesDelta - a.minutesDelta || (byKey.get(b.beneficiaryKey)?.weekMinutes ?? 0) - (byKey.get(a.beneficiaryKey)?.weekMinutes ?? 0)
+    || byKey.get(a.beneficiaryKey)!.name.localeCompare(byKey.get(b.beneficiaryKey)!.name) || a.id.localeCompare(b.id);
   function select(items: InjuryOpportunity[], excluded = new Set<string>()) {
-    const selected: InjuryOpportunity[] = [], perStar = new Map<string, number>();
+    const selected = new Map<string, InjuryOpportunity>();
     for (const item of items.sort(compare)) {
-      if (excluded.has(item.beneficiaryKey) || (perStar.get(item.injuredKey) ?? 0) >= INJURY_RULES.perInjuredPlayer) continue;
-      const existing = selected.find((entry) => entry.beneficiaryKey === item.beneficiaryKey);
-      if (existing) existing.relatedInjuries.push(...item.relatedInjuries);
-      else if (selected.length < INJURY_RULES.perSection) selected.push({ ...item, relatedInjuries: [...item.relatedInjuries] });
-      else continue;
-      perStar.set(item.injuredKey, (perStar.get(item.injuredKey) ?? 0) + 1);
+      if (excluded.has(item.beneficiaryKey)) continue;
+      const existing = selected.get(item.beneficiaryKey);
+      if (existing) existing.relatedInjuries.push(...item.relatedInjuries.filter((related) => !existing.relatedInjuries.some((entry) => entry.playerKey === related.playerKey)));
+      else selected.set(item.beneficiaryKey, { ...item, relatedInjuries: [...item.relatedInjuries] });
     }
-    return selected;
+    return [...selected.values()];
   }
   const opportunities = select(featured);
   return { opportunities, watchlist: select(watch, new Set(opportunities.map((item) => item.beneficiaryKey))), exclusionCounts };
@@ -160,7 +162,12 @@ export function applyInjurySnapshot(previous: InjuryHistory, data: InjuryRespons
     history.healthyBaselines = history.healthyBaselines.filter((entry) => entry.playerKey !== player.playerKey);
     history.healthyBaselines.push({ playerKey: player.playerKey, team: player.team, minutes: player.weekMinutes, observedAt: sourceAt });
   }
-  history.observations = history.observations.sort((a, b) => a.lastSeenAt.localeCompare(b.lastSeenAt)).slice(-50).map((entry) => ({ ...entry }));
+  // The UI can now expose more than 50 pairs: preserve held substitutes first,
+  // then the freshest/highest-owned observations within the existing history limit.
+  history.observations = history.observations.sort((a, b) => Number(data.rosterKeys.includes(b.beneficiaryKey)) - Number(data.rosterKeys.includes(a.beneficiaryKey))
+    || b.lastSeenAt.localeCompare(a.lastSeenAt)
+    || compareOwnership(players.get(a.beneficiaryKey) ?? {}, players.get(b.beneficiaryKey) ?? {}) || a.id.localeCompare(b.id))
+    .slice(0, 50).map((entry) => ({ ...entry }));
   history.healthyBaselines = history.healthyBaselines.slice(-50);
   return { history, alerts };
 }

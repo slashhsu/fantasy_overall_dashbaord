@@ -3,7 +3,10 @@ import { expect, test } from "@playwright/test";
 test("weekly defaults, sortable counts, daily switch and last-selection wins", async ({ page }, info) => {
   test.setTimeout(120_000);
   const requests: string[] = [];
+  let pendingRoutes = 0;
   await page.route("**/api/dashboard?*", async (route) => {
+    pendingRoutes++;
+    try {
     const url = new URL(route.request().url());
     const horizon = url.searchParams.get("recommendationHorizon") ?? "daily";
     requests.push(horizon);
@@ -11,11 +14,16 @@ test("weekly defaults, sortable counts, daily switch and last-selection wins", a
     const response = await route.fetch({ url: url.href });
     const data = await response.json();
     data.recommendationHorizon = horizon;
+    data.weeklyTeamSchedule = { startDate: "2026-11-16", endDate: "2026-11-22", timeZone: data.timeZone, status: "complete", missingScheduleDates: [], groups: [{ games: 4, teams: ["GSW", "POR"] }], dailyConsecutive: [
+      { date: "2026-11-16", nextDate: "2026-11-17", teams: ["GSW", "POR"], complete: true },
+      { date: "2026-11-22", nextDate: "2026-11-23", teams: [], complete: false },
+    ] };
     data.recommendationPeriod = { startDate: data.targetDate, endDate: data.targetDate, timeZone: data.timeZone, status: "complete" };
     data.recommendations.forEach((row: { remainingGames: number; usableGames: number; remainingGamesComplete: boolean }, index: number) => {
       row.remainingGames = index % 4; row.usableGames = index % 3; row.remainingGamesComplete = true;
     });
     await route.fulfill({ response, json: data });
+    } finally { pendingRoutes--; }
   });
   await page.goto("/login");
   await page.getByLabel("Dashboard password").fill("local-preview-password");
@@ -24,6 +32,9 @@ test("weekly defaults, sortable counts, daily switch and last-selection wins", a
   await expect(horizon).toHaveValue("remaining-week");
   const table = page.locator(".recommendation-table");
   await expect(table).toBeVisible();
+  await expect(page.getByText("週一（11/16–11/17）：", { exact: true })).toBeVisible();
+  await expect(page.getByText("週日（11/22–11/23）：", { exact: true })).toBeVisible();
+  await expect(page.locator(".daily-consecutive-schedule")).toContainText("未知（賽程不完整，僅列已確認隊伍）");
   await expect(table.getByRole("button", { name: "預估可排入場次", exact: true })).toBeVisible();
   await table.getByRole("button", { name: "本週剩餘場次", exact: true }).click();
   const counts = await table.locator("tbody tr td:nth-child(5)").allTextContents();
@@ -34,11 +45,14 @@ test("weekly defaults, sortable counts, daily switch and last-selection wins", a
   await expect(table.getByRole("button", { name: "預估可排入場次", exact: true })).toHaveCount(0);
   await expect(table.getByRole("button", { name: "本週剩餘場次", exact: true })).toBeVisible();
   await horizon.selectOption("remaining-week");
+  const lastDaily = page.waitForResponse((response) => response.url().includes("/api/dashboard?") && new URL(response.url()).searchParams.get("recommendationHorizon") === "daily");
   await horizon.selectOption("daily");
+  await lastDaily;
   await expect(horizon).toHaveValue("daily");
   await expect(table).toBeVisible();
   await expect(table.getByRole("button", { name: "預估可排入場次", exact: true })).toHaveCount(0);
   expect(requests).toContain("remaining-week"); expect(requests).toContain("daily");
+  await expect.poll(() => pendingRoutes).toBe(0);
 });
 
 test("unknown weekly dates show their cause and allow switching to daily recommendations", async ({ page }) => {
